@@ -1,0 +1,17 @@
+Name: graphics-drawingcombinators
+Description:
+    This module is a functional wrapper around OpenGL, so you don't
+    have to go into the deep, dark world of imperative stateful
+    programming just to draw stuff.  It supports 2D only (for now),
+    with support drawing geometry, images, and text.
+Version: 0.2
+Stability: experimental
+Synopsis: A functional interface to 2D drawing in OpenGL
+License: LGPL
+Category: Graphics
+Author: Luke Palmer
+Maintainer: lrpalmer@gmail.com
+Build-Type: Simple
+Build-Depends: base, mtl, containers, SDL == 0.5.3, SDL-ttf, SDL-image, OpenGL
+Exposed-Modules: Graphics.DrawingCombinators
+Extra-Source-Files: example.hs
