@@ -12,6 +12,6 @@ Category: Graphics
 Author: Luke Palmer
 Maintainer: lrpalmer@gmail.com
 Build-Type: Simple
-Build-Depends: base, mtl, containers, SDL == 0.5.3, SDL-ttf, SDL-image, OpenGL
+Build-Depends: base, mtl, containers, SDL, SDL-ttf, SDL-image, OpenGL
 Exposed-Modules: Graphics.DrawingCombinators
 Extra-Source-Files: example.hs
