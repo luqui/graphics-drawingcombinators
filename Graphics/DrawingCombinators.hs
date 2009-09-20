@@ -103,7 +103,7 @@ selectRegion :: Vec2 -> Vec2 -> Draw a -> IO (Maybe a)
 selectRegion ll ur drawing = do
     ((), recs) <- GL.getHitRecords 64 $ do -- XXX hard coded crap
         GL.preservingMatrix $ do
-            GLU.ortho2D (fst ll) (fst ur) (snd ll) (snd ur)
+            GLU.ortho2D (convReal $ fst ll) (convReal $ fst ur) (convReal $ snd ll) (convReal $ snd ur)
             runReaderT (draw' 0 drawing) initDrawCxt
             return ()
     let nameList = concatMap (\(GL.HitRecord _ _ ns) -> ns) (maybe [] id recs)
@@ -181,6 +181,9 @@ init = do
         when (not success) $ fail "SDL_ttf initialization failed"
 
 
+convReal :: Double -> GL.GLdouble
+convReal = realToFrac
+
 {----------------
   Geometric Primitives
 -----------------}
@@ -189,23 +192,23 @@ init = do
 point :: Vec2 -> Draw ()
 point (ax,ay) = DrawGL $ lift $
     GL.renderPrimitive GL.Points $
-        GL.vertex $ GL.Vertex2 ax ay
+        GL.vertex $ GL.Vertex2 (convReal ax) (convReal ay)
 
 -- | Draw a line connecting the two given points.
 line :: Vec2 -> Vec2 -> Draw ()
 line (ax,ay) (bx,by) = DrawGL $ lift $ 
     GL.renderPrimitive GL.Lines $ do
-        GL.vertex $ GL.Vertex2 ax ay
-        GL.vertex $ GL.Vertex2 bx by
+        GL.vertex $ GL.Vertex2 (convReal ax) (convReal ay)
+        GL.vertex $ GL.Vertex2 (convReal bx) (convReal by)
 
 -- | Draw a regular polygon centered at the origin with n sides.
 regularPoly :: Int -> Draw ()
 regularPoly n = DrawGL $ lift $ do
     let scaler = 2 * pi / fromIntegral n :: Double
     GL.renderPrimitive GL.TriangleFan $ do
-        GL.vertex $ (GL.Vertex2 0 0 :: GL.Vertex2 Double)
+        GL.vertex $ (GL.Vertex2 0 0 :: GL.Vertex2 GL.GLdouble)
         forM_ [0..n] $ \s -> do
-            let theta = scaler * fromIntegral s
+            let theta = convReal (scaler * fromIntegral s)
             GL.vertex $ GL.Vertex2 (cos theta) (sin theta)
 
 -- | Draw a unit circle centered at the origin.  This is equivalent
@@ -218,7 +221,7 @@ convexPoly :: [Vec2] -> Draw ()
 convexPoly points = DrawGL $ lift $ do
     GL.renderPrimitive GL.Polygon $ do
         forM_ points $ \(x,y) -> do
-            GL.vertex $ GL.Vertex2 x y
+            GL.vertex $ GL.Vertex2 (convReal x) (convReal y)
 
 {-----------------
   Transformations
@@ -229,7 +232,7 @@ translate :: Vec2 -> Draw a -> Draw a
 translate (byx,byy) = TransformGL $ \d -> do
     r <- ask
     lift $ GL.preservingMatrix $ do
-        GL.translate (GL.Vector3 byx byy 0)
+        GL.translate (GL.Vector3 (convReal byx) (convReal byy) 0)
         runReaderT d r
 
 -- | Rotate the given drawing counterclockwise by the
@@ -238,7 +241,7 @@ rotate :: Double -> Draw a -> Draw a
 rotate rad = TransformGL $ \d -> do
     r <- ask
     lift $ GL.preservingMatrix $ do
-        GL.rotate (180 * rad / pi) (GL.Vector3 0 0 1)
+        GL.rotate (180 * convReal rad / pi) (GL.Vector3 0 0 1)
         runReaderT d r
 
 -- | @scale x y d@ scales @d@ by a factor of @x@ in the
@@ -247,7 +250,7 @@ scale :: Double -> Double -> Draw a -> Draw a
 scale x y = TransformGL $ \d -> do
     r <- ask
     lift $ GL.preservingMatrix $ do
-        GL.scale x y 1
+        GL.scale (convReal x) (convReal y) 1
         runReaderT d r
 
 {------------
@@ -273,7 +276,7 @@ colorFunc cf = TransformGL $ \d -> do
     setColor oldcolor
     return result
     where
-    setColor (r,g,b,a) = lift $ GL.color $ GL.Color4 r g b a
+    setColor (r,g,b,a) = lift $ GL.color $ GL.Color4 (convReal r) (convReal g) (convReal b) (convReal a)
 
 -- | @color c d@ sets the color of the drawing to exactly @c@.
 color :: Color -> Draw a -> Draw a
@@ -397,9 +400,9 @@ sprite spr = DrawGL $ liftIO $ do
     oldtex <- GL.get (GL.textureBinding GL.Texture2D)
     GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
     GL.renderPrimitive GL.Quads $ do
-        let (xofs, yofs) = (0.5 * spriteWidth spr, 0.5 * spriteHeight spr)
-            (xrat, yrat) = (spriteWidthRat spr, spriteHeightRat spr)
-        GL.texCoord $ GL.TexCoord2 0 (0 :: Double)
+        let (xofs, yofs) = (convReal $ 0.5 * spriteWidth spr, convReal $ 0.5 * spriteHeight spr)
+            (xrat, yrat) = (convReal $ spriteWidthRat spr, convReal $ spriteHeightRat spr)
+        GL.texCoord $ GL.TexCoord2 0 (0 :: GL.GLdouble)
         GL.vertex   $ GL.Vertex2 (-xofs) yofs
         GL.texCoord $ GL.TexCoord2 xrat 0
         GL.vertex   $ GL.Vertex2 xofs yofs
