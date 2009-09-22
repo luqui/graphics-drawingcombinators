@@ -16,11 +16,11 @@ initScreen = do
 box :: Draw.Draw ()
 box = Draw.translate (0.0,0.2) 
         $ Draw.scale 0.3 0.3 
-        $ Draw.color (1,0,0,0) 
+        $ Draw.color (1,0,0,1) 
         $ Draw.convexPoly
             [(1,1),(1,-1),(-1,-1),(-1,1)]
 
-drawing = fmap (const "A") (Draw.color (0,0,1,0) box)
+drawing = fmap (const "A") (Draw.color (0,0,1,1) box)
           `mappend`
           fmap (const "B") (Draw.translate (-0.1,0.2) box)
 
