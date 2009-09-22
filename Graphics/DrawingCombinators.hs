@@ -88,12 +88,16 @@ runDrawing d = runReaderT (run' d) initDrawCxt
     run' (Over f a b) = run' b >> run' a
     run' (FMap f d) = run' d
 
--- |Like runDrawing, but clears the screen first.  This is so
+-- |Like runDrawing, but clears the screen first, and sets up
+-- a little necessary OpenGL state.  This is so
 -- you can use this module and pretend that OpenGL doesn't
 -- exist at all.
 draw :: Draw a -> IO ()
 draw d = do
     GL.clear [GL.ColorBuffer]
+    GL.texture GL.Texture2D GL.$= GL.Enabled
+    GL.blend GL.$= GL.Enabled
+    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
     runDrawing d
 
 -- | Given a bounding box, lower left and upper right in the default coordinate
