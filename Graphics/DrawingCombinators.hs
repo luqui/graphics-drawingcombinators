@@ -95,10 +95,11 @@ runDrawing d = runReaderT (run' d) initDrawCxt
 draw :: Draw a -> IO ()
 draw d = do
     GL.clear [GL.ColorBuffer]
-    GL.texture GL.Texture2D GL.$= GL.Enabled
-    GL.blend GL.$= GL.Enabled
-    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-    runDrawing d
+    GL.preservingAttrib [GL.AllServerAttributes] $ do
+        GL.texture GL.Texture2D GL.$= GL.Enabled
+        GL.blend GL.$= GL.Enabled
+        GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+        runDrawing d
 
 -- | Given a bounding box, lower left and upper right in the default coordinate
 -- system (-1,-1) to (1,1), return the topmost drawing's value (with respect to
@@ -233,29 +234,32 @@ convexPoly points = DrawGL $ lift $ do
 
 -- | Translate the given drawing by the given amount.
 translate :: Vec2 -> Draw a -> Draw a
-translate (byx,byy) = TransformGL $ \d -> do
-    r <- ask
-    lift $ GL.preservingMatrix $ do
-        GL.translate (GL.Vector3 (convReal byx) (convReal byy) 0)
-        runReaderT d r
+translate (byx,byy) = TransformGL $ 
+    cong (lift $ GL.translate (GL.Vector3 (convReal byx) (convReal byy) 0))
+         (lift $ GL.translate (GL.Vector3 (-convReal byx) (-convReal byy) 0))
 
 -- | Rotate the given drawing counterclockwise by the
 -- given number of radians.
 rotate :: Double -> Draw a -> Draw a
-rotate rad = TransformGL $ \d -> do
-    r <- ask
-    lift $ GL.preservingMatrix $ do
-        GL.rotate (180 * convReal rad / pi) (GL.Vector3 0 0 1)
-        runReaderT d r
+rotate rad = TransformGL $ 
+    cong (lift $ GL.rotate theta (GL.Vector3 0 0 1))
+         (lift $ GL.rotate (-theta) (GL.Vector3 0 0 1))
+  where
+    theta = 180 * convReal rad / pi
 
 -- | @scale x y d@ scales @d@ by a factor of @x@ in the
 -- horizontal direction and @y@ in the vertical direction.
 scale :: Double -> Double -> Draw a -> Draw a
-scale x y = TransformGL $ \d -> do
-    r <- ask
-    lift $ GL.preservingMatrix $ do
-        GL.scale (convReal x) (convReal y) 1
-        runReaderT d r
+scale x y = TransformGL $ 
+    cong (lift $ GL.scale (convReal x) (convReal y) 1)
+         (lift $ GL.scale (1/convReal x) (1/convReal y) 1)
+
+cong :: (Monad m) => m () -> m () -> m a -> m a
+cong ma mb mx = do
+    ma
+    x <- mx
+    mb
+    return x
 
 {------------
   Colors
