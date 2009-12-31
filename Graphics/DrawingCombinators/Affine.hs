@@ -8,7 +8,7 @@ import Graphics.Rendering.OpenGL.GL (GLdouble)
 import Data.Monoid
 
 type R = GLdouble
-type Vector2 = (R,R)
+type Vec2 = (R,R)
 
 data Affine = M !R !R !R
                 !R !R !R
