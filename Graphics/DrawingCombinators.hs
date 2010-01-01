@@ -1,5 +1,3 @@
-{-# LANGUAGE GADTs, RankNTypes #-}
-
 --------------------------------------------------------------
 -- | 
 -- Module      : Graphics.DrawingCombinators
@@ -33,6 +31,8 @@ module Graphics.DrawingCombinators
     -- * Initialization
     , init
     -- * Geometry
+    -- 
+    -- $geometry
     , point, line, regularPoly, circle, convexPoly, (%%)
     -- * Colors
     , Color(..), modulate, tint
@@ -61,9 +61,12 @@ import System.IO.Unsafe (unsafePerformIO)  -- for hacking around OpenGL bug :-(
 type Renderer = Affine -> Color -> IO ()
 type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
 
+-- | The type of images.
+--
+-- > [[Image a]] = R2 -> (Color, a)
 data Image a = Image { dRender :: Renderer
-                   , dPick   :: Picker a
-                   }
+                     , dPick   :: Picker a
+                     }
 
 instance Functor Image where
     fmap f d = Image { 
@@ -78,10 +81,11 @@ instance Applicative Image where
       }
     
     df <*> dx = Image {
-        dRender = (liftA2.liftA2) (*>) (dRender df) (dRender dx),
+        -- reversed so that things that come first go on top
+        dRender = (liftA2.liftA2) (*>) (dRender dx) (dRender df),
         dPick = \tr z -> do
-            (z', m) <- dPick df tr z
-            (z'', m') <- dPick dx tr z'
+            (z', m') <- dPick dx tr z
+            (z'', m) <- dPick df tr z'
             return (z'', m <*> m')
       }
 
@@ -89,7 +93,7 @@ instance (Monoid m) => Monoid (Image m) where
     mempty = pure mempty
     mappend = liftA2 mappend
 
--- |Draw a Drawing on the screen in the current OpenGL coordinate
+-- |Draw an Image on the screen in the current OpenGL coordinate
 -- system (which, in absense of information, is (-1,-1) in the
 -- lower left and (1,1) in the upper right).
 render :: Image a -> IO ()
@@ -112,7 +116,7 @@ clearRender d = do
 -- | Given a bounding box, lower left and upper right in the default coordinate
 -- system (-1,-1) to (1,1), return the topmost drawing's value (with respect to
 -- @`over`@) intersecting that bounding box.
-selectRegion :: Vec2 -> Vec2 -> Image a -> IO a
+selectRegion :: R2 -> R2 -> Image a -> IO a
 selectRegion ll ur drawing = do
     (lookup, recs) <- GL.getHitRecords 64 $ do -- XXX hard coded crap
         GL.preservingMatrix $ do
@@ -123,7 +127,10 @@ selectRegion ll ur drawing = do
     let nameSet  = Set.fromList $ map (\(GL.Name n) -> n) nameList
     return $ lookup nameSet
 
-sample :: Vec2 -> Image a -> IO a
+-- | Sample the value of the image at a point.  
+--
+-- > [[sample p i]] = snd ([[i]] [[p]])
+sample :: R2 -> Image a -> IO a
 sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
     where
     e = 1/1024
@@ -133,7 +140,7 @@ sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
   Initialization
 ----------------}
 
--- |Perform initialization of the library.  This can fail.
+-- |Perform initialization of the library.  This can throw an exception.
 init :: IO ()
 init = do
     wasinit <- TTF.wasInit
@@ -144,10 +151,22 @@ init = do
 
 
 {----------------
-  Geometric Primitives
+  Geometry
 -----------------}
 
-toVertex :: Affine -> Vec2 -> GL.Vertex2 GL.GLdouble
+-- $geometry
+-- The geomertic combinators all return an 'Image' 'Any'.  'Any'
+-- is a wrapper around 'Bool' with @(False, (||))@ as its 'Monoid'.
+-- This is so you can use the 'Monoid' instance on 'Image' to
+-- automatically get the union of primitives.  So:
+--
+-- > circle `mappend` (translate (1,0) %% circle)
+--
+-- Will have the value @Any True@ when /either/ of the circles is
+-- sampled.  To extract the Bool, use 'getAny', or pattern match
+-- on @Any True@ and @Any False@ instead of @True@ and @False@.
+
+toVertex :: Affine -> R2 -> GL.Vertex2 GL.GLdouble
 toVertex tr p = let (x,y) = tr `apply` p in GL.Vertex2 x y
 
 inSet :: (Ord a) => a -> Set.Set a -> Any
@@ -158,14 +177,17 @@ picker r tr z = z `seq` do
     GL.withName (GL.Name z) (r tr mempty)
     return (z+1, inSet z)
 
--- | Draw a single pixel at the specified point.
-point :: Vec2 -> Image Any
+-- | A single pixel at the specified point.
+--
+-- [[point p]] r | r == p    = (one, Any True) 
+--               | otherwise = (zero, Any False)
+point :: R2 -> Image Any
 point p = Image render (picker render)
     where
     render tr col = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
 
--- | Draw a line connecting the two given points.
-line :: Vec2 -> Vec2 -> Image Any
+-- | A line connecting the two given points.
+line :: R2 -> R2 -> Image Any
 line src dest = Image render (picker render)
     where
     render tr col = 
@@ -174,7 +196,7 @@ line src dest = Image render (picker render)
             GL.vertex $ toVertex tr dest
         
 
--- | Draw a regular polygon centered at the origin with n sides.
+-- | A regular polygon centered at the origin with n sides.
 regularPoly :: Int -> Image Any
 regularPoly n = Image render (picker render)
     where
@@ -186,13 +208,14 @@ regularPoly n = Image render (picker render)
                 let theta = scaler * fromIntegral s
                 GL.vertex $ toVertex tr (cos theta, sin theta)
 
--- | Draw a unit circle centered at the origin.  This is equivalent
--- to @regularPoly 24@.
+-- | An (imperfect) unit circle centered at the origin.  Implemented as:
+--
+-- > circle = regularPoly 24
 circle :: Image Any
 circle = regularPoly 24
 
--- | Draw a convex polygon given by the list of points.
-convexPoly :: [Vec2] -> Image Any
+-- | A convex polygon given by the list of points.
+convexPoly :: [R2] -> Image Any
 convexPoly points = Image render (picker render)
     where
     render tr col = 
@@ -204,6 +227,10 @@ convexPoly points = Image render (picker render)
 ------------------}
 
 infixr 1 %%
+
+-- | Transform an image by an 'Affine' transformation.
+--
+-- > [[tr % im]] = [[im]] . inverse [[tr]]
 (%%) :: Affine -> Image a -> Image a
 tr' %% d = Image render pick
     where
@@ -215,6 +242,20 @@ tr' %% d = Image render pick
   Colors
 -------------}
 
+-- | Color is defined in the usual computer graphics sense, of 
+-- a 4 vector containing red, green, blue, and alpha.
+--
+-- The Monoid instance is given by alpha transparency blending,
+-- so:
+--
+-- > mempty = Color 1 1 1 1
+-- > mappend c@(Color _ _ _ a) c'@(Color _ _ _ a') = a*c + (1-a)*c'
+--
+-- Where multiplication is componentwise.  In the semantcs the
+-- values @zero@ and @one@ are used, which are defined as:
+--
+-- > zero = Color 0 0 0 0
+-- > one = Color 1 1 1 1
 data Color = Color R R R R
 
 instance Monoid Color where
@@ -223,10 +264,18 @@ instance Monoid Color where
         where
         i x y = a*x + (1-a)*y
 
+-- | Modulate two colors by each other.
+--
+-- > modulate (Color r g b a) (Color r' g' b' a') 
+-- >           = Color (r*r') (g*g') (b*b') (a*a')
 modulate :: Color -> Color -> Color
 modulate (Color r g b a) (Color r' g' b' a') = Color (r*r') (g*g') (b*b') (a*a')
 
--- | @color c d@ sets the color of the drawing to exactly @c@.
+-- | Tint an image by a color; i.e. modulate the colors of an image by 
+-- a color.
+--
+-- > [[tint c im]] = first (modulate c) . [[im]]
+-- >    where first f (x,y) = (f x, y)
 tint :: Color -> Image a -> Image a
 tint c d = Image render (dPick d)
     where
@@ -244,7 +293,9 @@ tint c d = Image render (dPick d)
   Sprites (bitmap images)
 -------------------------}
 
--- | A sprite represents a bitmap image.
+-- | A Sprite represents a bitmap image.
+--
+-- > [[Sprite]] = [-1,1]^2 -> Color
 data Sprite = Sprite { spriteObject :: GL.TextureObject
                      , spriteWidthRat :: R
                      , spriteHeightRat :: R
@@ -273,7 +324,7 @@ freeTexture (GL.TextureObject b) = do
     GL.deleteObjectNames [GL.TextureObject b]
     atomicModifyIORef textureHack (\xs -> (b:xs,()))
 
--- | Indicate how a nonrectangular image is to be mapped to a sprite.
+-- | Indicate how a non-square image is to be mapped to a sprite.
 data SpriteScaling
     -- | ScaleMax will set the maximum of the height and width of the image to 1.
     = ScaleMax    
@@ -351,7 +402,10 @@ padSurface surf
 imageToSprite :: SpriteScaling -> FilePath -> IO Sprite
 imageToSprite scaling path = Image.load path >>= surfaceToSprite scaling
 
--- | Draw a sprite at the origin.
+-- | The image of a sprite at the origin.
+--
+-- > [[sprite s]] p | p ε [-1,1]^2 = ([[s]] p, Any True) 
+--                  | otherwise    = (zero, Any False)
 sprite :: Sprite -> Image Any
 sprite spr = Image render (picker render)
     where
@@ -377,7 +431,8 @@ sprite spr = Image render (picker render)
 
 data Font = Font { getFont :: TTF.Font }
 
--- | Load a TTF font from a file.
+-- | Load a TTF font from a file with the given point size (higher numbers
+-- mean smoother text but more expensive rendering).
 openFont :: String -> Int -> IO Font
 openFont path res = do
     font <- TTF.openFont path res
@@ -389,6 +444,7 @@ textSprite font str = do
     surf <- TTF.renderTextBlended (getFont font) str (SDL.Color 255 255 255)
     surfaceToSprite ScaleHeight surf
 
--- | Draw a string using a font.  The resulting string will have height 1.
+-- | The image representing some text rendered with a font.  The resulting 
+-- string will have height 1.
 text :: Font -> String -> Image Any
 text font str = sprite $ unsafePerformIO $ textSprite font str
