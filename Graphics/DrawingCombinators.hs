@@ -27,16 +27,14 @@ module Graphics.DrawingCombinators
     (
       module Graphics.DrawingCombinators.Affine
     -- * Basic types
-    , Draw, render, clearRender
+    , Image, render, clearRender
     -- * Selection
     , sample
     -- * Initialization
     , init
-    -- * Geometric Primitives
-    , point, line, regularPoly, circle, convexPoly
-    -- * Transformation
-    , (%%)
-    -- * Colors 
+    -- * Geometry
+    , point, line, regularPoly, circle, convexPoly, (%%)
+    -- * Colors
     , Color(..), modulate, tint
     -- * Sprites (images from files)
     , Sprite, SpriteScaling(..), surfaceToSprite, imageToSprite, sprite
@@ -63,23 +61,23 @@ import System.IO.Unsafe (unsafePerformIO)  -- for hacking around OpenGL bug :-(
 type Renderer = Affine -> Color -> IO ()
 type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
 
-data Draw a = Draw { dRender :: Renderer
+data Image a = Image { dRender :: Renderer
                    , dPick   :: Picker a
                    }
 
-instance Functor Draw where
-    fmap f d = Draw { 
+instance Functor Image where
+    fmap f d = Image { 
         dRender = dRender d,
         dPick = (fmap.fmap.fmap.fmap.fmap) f (dPick d)
       }
 
-instance Applicative Draw where
-    pure x = Draw { 
+instance Applicative Image where
+    pure x = Image { 
         dRender = (pure.pure.pure) (),
         dPick = \tr z -> pure (z, const x)
       }
     
-    df <*> dx = Draw {
+    df <*> dx = Image {
         dRender = (liftA2.liftA2) (*>) (dRender df) (dRender dx),
         dPick = \tr z -> do
             (z', m) <- dPick df tr z
@@ -87,14 +85,14 @@ instance Applicative Draw where
             return (z'', m <*> m')
       }
 
-instance (Monoid m) => Monoid (Draw m) where
+instance (Monoid m) => Monoid (Image m) where
     mempty = pure mempty
     mappend = liftA2 mappend
 
 -- |Draw a Drawing on the screen in the current OpenGL coordinate
 -- system (which, in absense of information, is (-1,-1) in the
 -- lower left and (1,1) in the upper right).
-render :: Draw a -> IO ()
+render :: Image a -> IO ()
 render d = do
     GL.preservingAttrib [GL.AllServerAttributes] $ do
         GL.texture GL.Texture2D GL.$= GL.Enabled
@@ -106,7 +104,7 @@ render d = do
 -- |Like @render@, but clears the screen first. This is so
 -- you can use this module and pretend that OpenGL doesn't
 -- exist at all.
-clearRender :: Draw a -> IO ()
+clearRender :: Image a -> IO ()
 clearRender d = do
     GL.clear [GL.ColorBuffer]
     render d
@@ -114,7 +112,7 @@ clearRender d = do
 -- | Given a bounding box, lower left and upper right in the default coordinate
 -- system (-1,-1) to (1,1), return the topmost drawing's value (with respect to
 -- @`over`@) intersecting that bounding box.
-selectRegion :: Vec2 -> Vec2 -> Draw a -> IO a
+selectRegion :: Vec2 -> Vec2 -> Image a -> IO a
 selectRegion ll ur drawing = do
     (lookup, recs) <- GL.getHitRecords 64 $ do -- XXX hard coded crap
         GL.preservingMatrix $ do
@@ -125,7 +123,7 @@ selectRegion ll ur drawing = do
     let nameSet  = Set.fromList $ map (\(GL.Name n) -> n) nameList
     return $ lookup nameSet
 
-sample :: Vec2 -> Draw a -> IO a
+sample :: Vec2 -> Image a -> IO a
 sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
     where
     e = 1/1024
@@ -161,14 +159,14 @@ picker r tr z = z `seq` do
     return (z+1, inSet z)
 
 -- | Draw a single pixel at the specified point.
-point :: Vec2 -> Draw Any
-point p = Draw render (picker render)
+point :: Vec2 -> Image Any
+point p = Image render (picker render)
     where
     render tr col = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
 
 -- | Draw a line connecting the two given points.
-line :: Vec2 -> Vec2 -> Draw Any
-line src dest = Draw render (picker render)
+line :: Vec2 -> Vec2 -> Image Any
+line src dest = Image render (picker render)
     where
     render tr col = 
         GL.renderPrimitive GL.Lines $ do
@@ -177,8 +175,8 @@ line src dest = Draw render (picker render)
         
 
 -- | Draw a regular polygon centered at the origin with n sides.
-regularPoly :: Int -> Draw Any
-regularPoly n = Draw render (picker render)
+regularPoly :: Int -> Image Any
+regularPoly n = Image render (picker render)
     where
     render tr col = do
         let scaler = 2 * pi / fromIntegral n
@@ -190,12 +188,12 @@ regularPoly n = Draw render (picker render)
 
 -- | Draw a unit circle centered at the origin.  This is equivalent
 -- to @regularPoly 24@.
-circle :: Draw Any
+circle :: Image Any
 circle = regularPoly 24
 
 -- | Draw a convex polygon given by the list of points.
-convexPoly :: [Vec2] -> Draw Any
-convexPoly points = Draw render (picker render)
+convexPoly :: [Vec2] -> Image Any
+convexPoly points = Image render (picker render)
     where
     render tr col = 
         GL.renderPrimitive GL.Polygon $ 
@@ -206,8 +204,8 @@ convexPoly points = Draw render (picker render)
 ------------------}
 
 infixr 1 %%
-(%%) :: Affine -> Draw a -> Draw a
-tr' %% d = Draw render pick
+(%%) :: Affine -> Image a -> Image a
+tr' %% d = Image render pick
     where
     render tr col = dRender d (tr' `compose` tr) col
     pick tr z = dPick d (tr' `compose` tr) z
@@ -229,8 +227,8 @@ modulate :: Color -> Color -> Color
 modulate (Color r g b a) (Color r' g' b' a') = Color (r*r') (g*g') (b*b') (a*a')
 
 -- | @color c d@ sets the color of the drawing to exactly @c@.
-tint :: Color -> Draw a -> Draw a
-tint c d = Draw render (dPick d)
+tint :: Color -> Image a -> Image a
+tint c d = Image render (dPick d)
     where
     render tr col = do
         let oldColor = col
@@ -354,8 +352,8 @@ imageToSprite :: SpriteScaling -> FilePath -> IO Sprite
 imageToSprite scaling path = Image.load path >>= surfaceToSprite scaling
 
 -- | Draw a sprite at the origin.
-sprite :: Sprite -> Draw Any
-sprite spr = Draw render (picker render)
+sprite :: Sprite -> Image Any
+sprite spr = Image render (picker render)
     where
     render tr colt = do
         oldtex <- GL.get (GL.textureBinding GL.Texture2D)
@@ -392,5 +390,5 @@ textSprite font str = do
     surfaceToSprite ScaleHeight surf
 
 -- | Draw a string using a font.  The resulting string will have height 1.
-text :: Font -> String -> Draw Any
+text :: Font -> String -> Image Any
 text font str = sprite $ unsafePerformIO $ textSprite font str

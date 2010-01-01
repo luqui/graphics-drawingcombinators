@@ -13,18 +13,18 @@ initScreen = do
     Draw.init
     return ()
 
-textBox :: Draw.Color -> Draw.Font -> String -> Draw.Draw (Maybe String)
+textBox :: Draw.Color -> Draw.Font -> String -> Draw.Image (Maybe String)
 textBox color font text = fmap (\(Any b) -> if b then Just text else Nothing) $
                             Draw.tint color (Draw.convexPoly [(1,1),(1,-1),(-1,-1),(-1,1)])
                                 `mappend`
                             Draw.text font text
 
-juxtapose :: (Monoid a) => Draw.Draw a -> Draw.Draw a -> Draw.Draw a
+juxtapose :: (Monoid a) => Draw.Image a -> Draw.Image a -> Draw.Image a
 juxtapose d1 d2 = (Draw.translate (-1,0) Draw.%% Draw.scale 0.5 1 Draw.%% d1)
                     `mappend`
                   (Draw.translate (1,0) Draw.%% Draw.scale 0.5 1 Draw.%% d2)
 
-drawing :: Draw.Font -> Draw.Draw (Maybe String)
+drawing :: Draw.Font -> Draw.Image (Maybe String)
 drawing font = juxtapose (textBox (Draw.Color 1 0 0 1) font "A") 
                          (textBox (Draw.Color 0 0 1 1) font "B")
 
