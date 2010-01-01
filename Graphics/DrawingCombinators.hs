@@ -24,20 +24,18 @@
 --------------------------------------------------------------
 
 module Graphics.DrawingCombinators
-{-
     (
+      module Graphics.DrawingCombinators.Affine
     -- * Basic types
-      Draw, runDrawing, draw, Vec2
+    , Draw, render, clearRender
     -- * Selection
-    , selectRegion, click
-    -- * Combinators
-    , over, overlay, empty
+    , sample
     -- * Initialization
     , init
     -- * Geometric Primitives
     , point, line, regularPoly, circle, convexPoly
-    -- * Transformations
-    , translate, rotate, scale
+    -- * Transformation
+    , (%%)
     -- * Colors 
     , Color, color, colorFunc
     -- * Sprites (images from files)
@@ -45,7 +43,6 @@ module Graphics.DrawingCombinators
     -- * Text
     , Font, openFont, text
     )
--}
 where
 
 import Prelude hiding (init)
@@ -60,7 +57,7 @@ import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified Graphics.UI.SDL as SDL
 import qualified Graphics.UI.SDL.Image as Image
 import qualified Graphics.UI.SDL.TTF as TTF
-import Data.IORef 
+import Data.IORef (IORef, newIORef, atomicModifyIORef)
 import System.IO.Unsafe (unsafePerformIO)  -- for hacking around OpenGL bug :-(
 
 type Color = (R,R,R,R)
@@ -131,8 +128,8 @@ selectRegion ll ur drawing = do
     let nameSet  = Set.fromList $ map (\(GL.Name n) -> n) nameList
     return $ lookup nameSet
 
-click :: Vec2 -> Draw a -> IO a
-click (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
+sample :: Vec2 -> Draw a -> IO a
+sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
     where
     e = 1/1024
 
@@ -277,7 +274,7 @@ allocateTexture = do
 freeTexture :: GL.TextureObject -> IO ()
 freeTexture (GL.TextureObject b) = do
     GL.deleteObjectNames [GL.TextureObject b]
-    modifyIORef textureHack (b:)
+    atomicModifyIORef textureHack (\xs -> (b:xs,()))
 
 -- | Indicate how a nonrectangular image is to be mapped to a sprite.
 data SpriteScaling
