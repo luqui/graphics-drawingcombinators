@@ -17,8 +17,8 @@
 --
 -- It is recommended that you use this module in combination
 -- with SDL; it has not been tested in any other environments.
--- For some reason the selection stuff ("selectRegion", "click")
--- crashes GHCi, but it works okay compiled.
+-- For some reason the GL picking stuff ('sample') crashes GHCi, 
+-- but it works okay compiled.
 --------------------------------------------------------------
 
 module Graphics.DrawingCombinators
@@ -179,8 +179,8 @@ picker r tr z = z `seq` do
 
 -- | A single pixel at the specified point.
 --
--- [[point p]] r | r == p    = (one, Any True) 
---               | otherwise = (zero, Any False)
+-- > [[point p]] r | [[r]] == [[p]] = (one, Any True) 
+-- >               | otherwise      = (zero, Any False)
 point :: R2 -> Image Any
 point p = Image render (picker render)
     where
@@ -404,8 +404,8 @@ imageToSprite scaling path = Image.load path >>= surfaceToSprite scaling
 
 -- | The image of a sprite at the origin.
 --
--- > [[sprite s]] p | p ε [-1,1]^2 = ([[s]] p, Any True) 
---                  | otherwise    = (zero, Any False)
+-- > [[sprite s]] p | p `elem` [-1,1]^2 = ([[s]] p, Any True) 
+-- >                | otherwise         = (zero, Any False)
 sprite :: Sprite -> Image Any
 sprite spr = Image render (picker render)
     where

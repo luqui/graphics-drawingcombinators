@@ -62,7 +62,7 @@ translate :: R2 -> Affine
 translate (x,y) = M 1 0 x
                     0 1 y
 
--- | > [[rotate θ]] (x,y) = (cos(θ)x - sin(θ)y, sin(θ)x + cos(θ)y)
+-- | > [[rotate r]] (x,y) = (cos(r)x - sin(r)y, sin(r)x + cos(r)y)
 rotate :: R -> Affine
 rotate t = M cost (-sint) 0
              sint cost    0
