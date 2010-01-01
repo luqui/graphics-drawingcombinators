@@ -37,7 +37,7 @@ module Graphics.DrawingCombinators
     -- * Transformation
     , (%%)
     -- * Colors 
-    , Color, color, colorFunc
+    , Color(..), modulate, tint
     -- * Sprites (images from files)
     , Sprite, SpriteScaling(..), surfaceToSprite, imageToSprite, sprite
     -- * Text
@@ -60,10 +60,7 @@ import qualified Graphics.UI.SDL.TTF as TTF
 import Data.IORef (IORef, newIORef, atomicModifyIORef)
 import System.IO.Unsafe (unsafePerformIO)  -- for hacking around OpenGL bug :-(
 
-type Color = (R,R,R,R)
-type ColorT = Color -> Color
-
-type Renderer = Affine -> ColorT -> IO ()
+type Renderer = Affine -> Color -> IO ()
 type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
 
 data Draw a = Draw { dRender :: Renderer
@@ -104,7 +101,7 @@ render d = do
         GL.blend GL.$= GL.Enabled
         GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
         GL.depthFunc GL.$= Nothing
-        dRender d identity id
+        dRender d identity mempty
 
 -- |Like @render@, but clears the screen first. This is so
 -- you can use this module and pretend that OpenGL doesn't
@@ -160,20 +157,20 @@ inSet x s = Any (x `Set.member` s)
 
 picker :: Renderer -> Picker Any
 picker r tr z = z `seq` do
-    GL.withName (GL.Name z) (r tr id)
+    GL.withName (GL.Name z) (r tr mempty)
     return (z+1, inSet z)
 
 -- | Draw a single pixel at the specified point.
 point :: Vec2 -> Draw Any
 point p = Draw render (picker render)
     where
-    render tr colt = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
+    render tr col = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
 
 -- | Draw a line connecting the two given points.
 line :: Vec2 -> Vec2 -> Draw Any
 line src dest = Draw render (picker render)
     where
-    render tr colt = 
+    render tr col = 
         GL.renderPrimitive GL.Lines $ do
             GL.vertex $ toVertex tr src
             GL.vertex $ toVertex tr dest
@@ -183,7 +180,7 @@ line src dest = Draw render (picker render)
 regularPoly :: Int -> Draw Any
 regularPoly n = Draw render (picker render)
     where
-    render tr colt = do
+    render tr col = do
         let scaler = 2 * pi / fromIntegral n
         GL.renderPrimitive GL.TriangleFan $ do
             GL.vertex $ toVertex tr (0,0)
@@ -200,7 +197,7 @@ circle = regularPoly 24
 convexPoly :: [Vec2] -> Draw Any
 convexPoly points = Draw render (picker render)
     where
-    render tr colt = 
+    render tr col = 
         GL.renderPrimitive GL.Polygon $ 
             mapM_ (GL.vertex . toVertex tr) points
 
@@ -208,10 +205,11 @@ convexPoly points = Draw render (picker render)
   Transformations
 ------------------}
 
+infixr 1 %%
 (%%) :: Affine -> Draw a -> Draw a
 tr' %% d = Draw render pick
     where
-    render tr colt = dRender d (tr' `compose` tr) colt
+    render tr col = dRender d (tr' `compose` tr) col
     pick tr z = dPick d (tr' `compose` tr) z
 
 
@@ -219,28 +217,29 @@ tr' %% d = Draw render pick
   Colors
 -------------}
 
--- | @colorFunc f d@ modifies all colors appearing in @d@ with
--- the function @f@.  For example:
---
--- > colorFunc (\(r,g,b,a) -> (r,g,b,a/2)) d
---
--- Will draw d at greater transparency, regardless of the calls
--- to color within.
-colorFunc :: (Color -> Color) -> Draw a -> Draw a
-colorFunc colt' d = Draw render (dPick d)
-    where
-    render tr colt = do
-        let oldcolor = colt (1,1,1,1)
-            newcolor = colt' oldcolor
-        setColor newcolor
-        result <- dRender d tr (colt' . colt)
-        setColor oldcolor
-        return result
-    setColor (r,g,b,a) = GL.color $ GL.Color4 r g b a
+data Color = Color R R R R
+
+instance Monoid Color where
+    mempty = Color 1 1 1 1
+    mappend (Color r g b a) (Color r' g' b' a') = Color (i r r') (i g g') (i b b') (i a a')
+        where
+        i x y = a*x + (1-a)*y
+
+modulate :: Color -> Color -> Color
+modulate (Color r g b a) (Color r' g' b' a') = Color (r*r') (g*g') (b*b') (a*a')
 
 -- | @color c d@ sets the color of the drawing to exactly @c@.
-color :: Color -> Draw a -> Draw a
-color c = colorFunc (const c)
+tint :: Color -> Draw a -> Draw a
+tint c d = Draw render (dPick d)
+    where
+    render tr col = do
+        let oldColor = col
+            newColor = modulate c col
+        setColor newColor
+        result <- dRender d tr newColor
+        setColor oldColor
+        return result
+    setColor (Color r g b a) = GL.color $ GL.Color4 r g b a
 
 
 {-------------------------
