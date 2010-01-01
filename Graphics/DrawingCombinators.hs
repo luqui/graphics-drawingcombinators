@@ -1,8 +1,8 @@
 --------------------------------------------------------------
 -- | 
 -- Module      : Graphics.DrawingCombinators
--- Copyright   : (c) Luke Palmer 2008
--- License     : LGPL
+-- Copyright   : (c) Luke Palmer 2008-2010
+-- License     : BSD3
 --
 -- Maintainer  : Luke Palmer <lrpalmer@gmail.com>
 -- Stability   : experimental
