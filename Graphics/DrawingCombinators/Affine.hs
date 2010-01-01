@@ -1,5 +1,5 @@
 module Graphics.DrawingCombinators.Affine
-    ( R, Vector2, Affine
+    ( R, Vec2, Affine
     , compose, apply, identity, translate, rotate, scale
     )
 where
@@ -23,7 +23,7 @@ M x11 x12 x13 x21 x22 x23 `compose` M y11 y12 y13 y21 y22 y23 =
     M (x11*y11+x12*y21) (x11*y12+x12*y22) (x11*y13+x12*y23+x13)
       (x21*y11+x22*y21) (x21*y12+x22*y22) (x21*y13+x22*y23+x23)
 
-apply :: Affine -> Vector2 -> Vector2
+apply :: Affine -> Vec2 -> Vec2
 apply (M x11 x12 x13 x21 x22 x23) (y1,y2) = 
     (x11*y1+x12*y2+x13, x21*y1+x22*y2+x23)
 
@@ -31,7 +31,7 @@ identity :: Affine
 identity = M 1 0 0
              0 1 0
 
-translate :: Vector2 -> Affine
+translate :: Vec2 -> Affine
 translate (x,y) = M 1 0 x
                     0 1 y
 

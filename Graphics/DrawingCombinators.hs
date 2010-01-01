@@ -24,6 +24,7 @@
 --------------------------------------------------------------
 
 module Graphics.DrawingCombinators
+{-
     (
     -- * Basic types
       Draw, runDrawing, draw, Vec2
@@ -44,133 +45,96 @@ module Graphics.DrawingCombinators
     -- * Text
     , Font, openFont, text
     )
+-}
 where
 
 import Prelude hiding (init)
-import Data.Monoid
-import Control.Monad
-import Control.Monad.Reader
+import Graphics.DrawingCombinators.Affine
+import Control.Applicative (Applicative(..), liftA2, (*>))
+import Control.Monad (when, forM_)
+import Data.Monoid (Monoid(..), Any(..))
+import System.Mem.Weak (addFinalizer)
+import qualified Data.Set as Set
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified Graphics.UI.SDL as SDL
 import qualified Graphics.UI.SDL.Image as Image
 import qualified Graphics.UI.SDL.TTF as TTF
-import System.Mem.Weak
 import Data.IORef 
-import System.IO.Unsafe
-import qualified Data.Set as Set
-import Debug.Trace
+import System.IO.Unsafe (unsafePerformIO)  -- for hacking around OpenGL bug :-(
 
-type Vec2 = (Double,Double)
-type Color = (Double,Double,Double,Double)
+type Color = (R,R,R,R)
+type ColorT = Color -> Color
 
-type DrawM a = ReaderT DrawCxt IO a
+type Renderer = Affine -> ColorT -> IO ()
+type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
 
--- | @Draw a@ represents a drawing which returns a value of type
--- a when selected.
-data Draw a where
-    DrawGL      :: DrawM () -> Draw ()
-    TransformGL :: (forall x. DrawM x -> DrawM x) -> Draw a -> Draw a
-    Empty       :: Draw a
-    Over        :: (a -> a -> a) -> Draw a -> Draw a -> Draw a
-    FMap        :: (a -> b) -> Draw a -> Draw b
+data Draw a = Draw { dRender :: Renderer
+                   , dPick   :: Picker a
+                   }
+
+instance Functor Draw where
+    fmap f d = Draw { 
+        dRender = dRender d,
+        dPick = (fmap.fmap.fmap.fmap.fmap) f (dPick d)
+      }
+
+instance Applicative Draw where
+    pure x = Draw { 
+        dRender = (pure.pure.pure) (),
+        dPick = \tr z -> pure (z, const x)
+      }
+    
+    df <*> dx = Draw {
+        dRender = (liftA2.liftA2) (*>) (dRender df) (dRender dx),
+        dPick = \tr z -> do
+            (z', m) <- dPick df tr z
+            (z'', m') <- dPick dx tr z'
+            return (z'', m <*> m')
+      }
+
+instance (Monoid m) => Monoid (Draw m) where
+    mempty = pure mempty
+    mappend = liftA2 mappend
 
 -- |Draw a Drawing on the screen in the current OpenGL coordinate
 -- system (which, in absense of information, is (-1,-1) in the
 -- lower left and (1,1) in the upper right).
-runDrawing :: Draw a -> IO ()
-runDrawing d = runReaderT (run' d) initDrawCxt
-    where
-    run' :: Draw a -> DrawM ()
-    run' (DrawGL m) = m
-    run' (TransformGL f m) = f (run' m)
-    run' Empty = return ()
-    run' (Over f a b) = run' b >> run' a
-    run' (FMap f d) = run' d
-
--- |Like runDrawing, but clears the screen first, and sets up
--- a little necessary OpenGL state.  This is so
--- you can use this module and pretend that OpenGL doesn't
--- exist at all.
-draw :: Draw a -> IO ()
-draw d = do
-    GL.clear [GL.ColorBuffer]
+render :: Draw a -> IO ()
+render d = do
     GL.preservingAttrib [GL.AllServerAttributes] $ do
         GL.texture GL.Texture2D GL.$= GL.Enabled
         GL.blend GL.$= GL.Enabled
         GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-        runDrawing d
+        GL.depthFunc GL.$= Nothing
+        dRender d identity id
+
+-- |Like @render@, but clears the screen first. This is so
+-- you can use this module and pretend that OpenGL doesn't
+-- exist at all.
+clearRender :: Draw a -> IO ()
+clearRender d = do
+    GL.clear [GL.ColorBuffer]
+    render d
 
 -- | Given a bounding box, lower left and upper right in the default coordinate
 -- system (-1,-1) to (1,1), return the topmost drawing's value (with respect to
 -- @`over`@) intersecting that bounding box.
-selectRegion :: Vec2 -> Vec2 -> Draw a -> IO (Maybe a)
+selectRegion :: Vec2 -> Vec2 -> Draw a -> IO a
 selectRegion ll ur drawing = do
-    ((), recs) <- GL.getHitRecords 64 $ do -- XXX hard coded crap
+    (lookup, recs) <- GL.getHitRecords 64 $ do -- XXX hard coded crap
         GL.preservingMatrix $ do
-            GLU.ortho2D (convReal $ fst ll) (convReal $ fst ur) (convReal $ snd ll) (convReal $ snd ur)
-            runReaderT (draw' 0 drawing) initDrawCxt
-            return ()
+            GLU.ortho2D (fst ll) (fst ur) (snd ll) (snd ur)
+            (_, lookup) <- dPick drawing identity 0
+            return lookup
     let nameList = concatMap (\(GL.HitRecord _ _ ns) -> ns) (maybe [] id recs)
     let nameSet  = Set.fromList $ map (\(GL.Name n) -> n) nameList
-    return $ fst $ lookupName 0 nameSet drawing
-    where
-    draw' :: GL.GLuint -> Draw a -> DrawM GL.GLuint
-    draw' n (DrawGL m) = do
-        r <- ask
-        lift $ GL.withName (GL.Name n) $ runReaderT m r
-        return $! n+1
-    draw' n (TransformGL f m) = f (draw' n m)
-    draw' n Empty = return n
-    draw' n (Over f a b) = do
-        n' <- draw' n b
-        draw' n' a
-    draw' n (FMap f d) = draw' n d
-    
-    lookupName :: GL.GLuint -> Set.Set GL.GLuint -> Draw a -> (Maybe a, GL.GLuint)
-    lookupName n names (DrawGL m)
-        | n `Set.member` names = (Just (), n + 1)
-        | otherwise            = (Nothing, n + 1)
-    lookupName n names (TransformGL _ m) = lookupName n names m
-    lookupName n names Empty = (Nothing, n)
-    lookupName n names (Over f a b) =
-        let (lb, n')  = lookupName n  names b
-            (la, n'') = lookupName n' names a
-        in (joinMaybes f la lb, n'')
-    lookupName n names (FMap f d) = 
-        let (l, n') = lookupName n names d
-        in (fmap f l, n')
+    return $ lookup nameSet
 
-joinMaybes :: (a -> a -> a) -> Maybe a -> Maybe a -> Maybe a
-joinMaybes f Nothing x = x
-joinMaybes f x Nothing = x
-joinMaybes f (Just x) (Just y) = Just (f x y)
-
-click :: Vec2 -> Draw a -> IO (Maybe a)
+click :: Vec2 -> Draw a -> IO a
 click (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
     where
     e = 1/1024
-
-data DrawCxt 
-    = DrawCxt { colorTrans :: Color -> Color }
-
-initDrawCxt = DrawCxt { colorTrans = id }
-
-over :: Draw a -> Draw a -> Draw a
-over = overlay const
-
-overlay :: (a -> a -> a) -> Draw a -> Draw a -> Draw a
-overlay = Over
-
-empty :: Draw a
-empty = Empty
-
-instance Functor Draw where
-    fmap = FMap
-
-instance (Monoid a) => Monoid (Draw a) where
-    mempty = empty
-    mappend = overlay mappend
 
 
 {----------------
@@ -186,80 +150,73 @@ init = do
         when (not success) $ fail "SDL_ttf initialization failed"
 
 
-convReal :: Double -> GL.GLdouble
-convReal = realToFrac
 
 {----------------
   Geometric Primitives
 -----------------}
 
+toVertex :: Affine -> Vec2 -> GL.Vertex2 GL.GLdouble
+toVertex tr p = let (x,y) = tr `apply` p in GL.Vertex2 x y
+
+inSet :: (Ord a) => a -> Set.Set a -> Any
+inSet x s = Any (x `Set.member` s)
+
+picker :: Renderer -> Picker Any
+picker r tr z = z `seq` do
+    GL.withName (GL.Name z) (r tr id)
+    return (z+1, inSet z)
+
 -- | Draw a single pixel at the specified point.
-point :: Vec2 -> Draw ()
-point (ax,ay) = DrawGL $ lift $
-    GL.renderPrimitive GL.Points $
-        GL.vertex $ GL.Vertex2 (convReal ax) (convReal ay)
+point :: Vec2 -> Draw Any
+point p = Draw render (picker render)
+    where
+    render tr colt = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
 
 -- | Draw a line connecting the two given points.
-line :: Vec2 -> Vec2 -> Draw ()
-line (ax,ay) (bx,by) = DrawGL $ lift $ 
-    GL.renderPrimitive GL.Lines $ do
-        GL.vertex $ GL.Vertex2 (convReal ax) (convReal ay)
-        GL.vertex $ GL.Vertex2 (convReal bx) (convReal by)
+line :: Vec2 -> Vec2 -> Draw Any
+line src dest = Draw render (picker render)
+    where
+    render tr colt = 
+        GL.renderPrimitive GL.Lines $ do
+            GL.vertex $ toVertex tr src
+            GL.vertex $ toVertex tr dest
+        
 
 -- | Draw a regular polygon centered at the origin with n sides.
-regularPoly :: Int -> Draw ()
-regularPoly n = DrawGL $ lift $ do
-    let scaler = 2 * pi / fromIntegral n :: Double
-    GL.renderPrimitive GL.TriangleFan $ do
-        GL.vertex $ (GL.Vertex2 0 0 :: GL.Vertex2 GL.GLdouble)
-        forM_ [0..n] $ \s -> do
-            let theta = convReal (scaler * fromIntegral s)
-            GL.vertex $ GL.Vertex2 (cos theta) (sin theta)
+regularPoly :: Int -> Draw Any
+regularPoly n = Draw render (picker render)
+    where
+    render tr colt = do
+        let scaler = 2 * pi / fromIntegral n
+        GL.renderPrimitive GL.TriangleFan $ do
+            GL.vertex $ toVertex tr (0,0)
+            forM_ [0..n] $ \s -> do
+                let theta = scaler * fromIntegral s
+                GL.vertex $ toVertex tr (cos theta, sin theta)
 
 -- | Draw a unit circle centered at the origin.  This is equivalent
 -- to @regularPoly 24@.
-circle :: Draw ()
+circle :: Draw Any
 circle = regularPoly 24
 
 -- | Draw a convex polygon given by the list of points.
-convexPoly :: [Vec2] -> Draw ()
-convexPoly points = DrawGL $ lift $ do
-    GL.renderPrimitive GL.Polygon $ do
-        forM_ points $ \(x,y) -> do
-            GL.vertex $ GL.Vertex2 (convReal x) (convReal y)
+convexPoly :: [Vec2] -> Draw Any
+convexPoly points = Draw render (picker render)
+    where
+    render tr colt = 
+        GL.renderPrimitive GL.Polygon $ 
+            mapM_ (GL.vertex . toVertex tr) points
 
 {-----------------
   Transformations
 ------------------}
 
--- | Translate the given drawing by the given amount.
-translate :: Vec2 -> Draw a -> Draw a
-translate (byx,byy) = TransformGL $ 
-    cong (lift $ GL.translate (GL.Vector3 (convReal byx) (convReal byy) 0))
-         (lift $ GL.translate (GL.Vector3 (-convReal byx) (-convReal byy) 0))
+(%%) :: Affine -> Draw a -> Draw a
+tr' %% d = Draw render pick
+    where
+    render tr colt = dRender d (tr' `compose` tr) colt
+    pick tr z = dPick d (tr' `compose` tr) z
 
--- | Rotate the given drawing counterclockwise by the
--- given number of radians.
-rotate :: Double -> Draw a -> Draw a
-rotate rad = TransformGL $ 
-    cong (lift $ GL.rotate theta (GL.Vector3 0 0 1))
-         (lift $ GL.rotate (-theta) (GL.Vector3 0 0 1))
-  where
-    theta = 180 * convReal rad / pi
-
--- | @scale x y d@ scales @d@ by a factor of @x@ in the
--- horizontal direction and @y@ in the vertical direction.
-scale :: Double -> Double -> Draw a -> Draw a
-scale x y = TransformGL $ 
-    cong (lift $ GL.scale (convReal x) (convReal y) 1)
-         (lift $ GL.scale (1/convReal x) (1/convReal y) 1)
-
-cong :: (Monad m) => m () -> m () -> m a -> m a
-cong ma mb mx = do
-    ma
-    x <- mx
-    mb
-    return x
 
 {------------
   Colors
@@ -273,18 +230,16 @@ cong ma mb mx = do
 -- Will draw d at greater transparency, regardless of the calls
 -- to color within.
 colorFunc :: (Color -> Color) -> Draw a -> Draw a
-colorFunc cf = TransformGL $ \d -> do
-    r <- ask
-    let trans    = colorTrans r
-        newtrans = trans . cf
-        oldcolor = trans (1,1,1,1)
-        newcolor = newtrans (1,1,1,1)
-    setColor newcolor
-    result <- local (const (r { colorTrans = newtrans })) d
-    setColor oldcolor
-    return result
+colorFunc colt' d = Draw render (dPick d)
     where
-    setColor (r,g,b,a) = lift $ GL.color $ GL.Color4 (convReal r) (convReal g) (convReal b) (convReal a)
+    render tr colt = do
+        let oldcolor = colt (1,1,1,1)
+            newcolor = colt' oldcolor
+        setColor newcolor
+        result <- dRender d tr (colt' . colt)
+        setColor oldcolor
+        return result
+    setColor (r,g,b,a) = GL.color $ GL.Color4 r g b a
 
 -- | @color c d@ sets the color of the drawing to exactly @c@.
 color :: Color -> Draw a -> Draw a
@@ -297,10 +252,10 @@ color c = colorFunc (const c)
 
 -- | A sprite represents a bitmap image.
 data Sprite = Sprite { spriteObject :: GL.TextureObject
-                     , spriteWidthRat :: Double
-                     , spriteHeightRat :: Double
-                     , spriteWidth :: Double
-                     , spriteHeight :: Double
+                     , spriteWidthRat :: R
+                     , spriteHeightRat :: R
+                     , spriteWidth :: R
+                     , spriteHeight :: R
                      }
 
 -- FUUUUUUUUUCKKK Why doesn't glGenTextures work!!??
@@ -403,22 +358,24 @@ imageToSprite :: SpriteScaling -> FilePath -> IO Sprite
 imageToSprite scaling path = Image.load path >>= surfaceToSprite scaling
 
 -- | Draw a sprite at the origin.
-sprite :: Sprite -> Draw ()
-sprite spr = DrawGL $ liftIO $ do
-    oldtex <- GL.get (GL.textureBinding GL.Texture2D)
-    GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
-    GL.renderPrimitive GL.Quads $ do
-        let (xofs, yofs) = (convReal $ 0.5 * spriteWidth spr, convReal $ 0.5 * spriteHeight spr)
-            (xrat, yrat) = (convReal $ spriteWidthRat spr, convReal $ spriteHeightRat spr)
-        GL.texCoord $ GL.TexCoord2 0 (0 :: GL.GLdouble)
-        GL.vertex   $ GL.Vertex2 (-xofs) yofs
-        GL.texCoord $ GL.TexCoord2 xrat 0
-        GL.vertex   $ GL.Vertex2 xofs yofs
-        GL.texCoord $ GL.TexCoord2 xrat yrat
-        GL.vertex   $ GL.Vertex2 xofs (-yofs)
-        GL.texCoord $ GL.TexCoord2 0 yrat
-        GL.vertex   $ GL.Vertex2 (-xofs) (-yofs)
-    GL.textureBinding GL.Texture2D GL.$= oldtex
+sprite :: Sprite -> Draw Any
+sprite spr = Draw render (picker render)
+    where
+    render tr colt = do
+        oldtex <- GL.get (GL.textureBinding GL.Texture2D)
+        GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
+        GL.renderPrimitive GL.Quads $ do
+            let (xofs, yofs) = (0.5 * spriteWidth spr, 0.5 * spriteHeight spr)
+                (xrat, yrat) = (spriteWidthRat spr, spriteHeightRat spr)
+            GL.texCoord $ GL.TexCoord2 0 (0 :: GL.GLdouble)
+            GL.vertex   $ toVertex tr (-xofs, yofs)
+            GL.texCoord $ GL.TexCoord2 xrat 0
+            GL.vertex   $ toVertex tr (xofs, yofs)
+            GL.texCoord $ GL.TexCoord2 xrat yrat
+            GL.vertex   $ toVertex tr (xofs,-yofs)
+            GL.texCoord $ GL.TexCoord2 0 yrat
+            GL.vertex   $ toVertex tr (-xofs,-yofs)
+        GL.textureBinding GL.Texture2D GL.$= oldtex
 
 {---------
  Text
@@ -439,5 +396,5 @@ textSprite font str = do
     surfaceToSprite ScaleHeight surf
 
 -- | Draw a string using a font.  The resulting string will have height 1.
-text :: Font -> String -> Draw ()
+text :: Font -> String -> Draw Any
 text font str = sprite $ unsafePerformIO $ textSprite font str
