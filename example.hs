@@ -20,9 +20,9 @@ textBox color font text = fmap (\(Any b) -> if b then Just text else Nothing) $
                             Draw.tint color (Draw.convexPoly [(1,1),(1,-1),(-1,-1),(-1,1)])
 
 juxtapose :: (Monoid a) => Draw.Image a -> Draw.Image a -> Draw.Image a
-juxtapose d1 d2 = (Draw.translate (-1,0) Draw.%% Draw.scale 0.5 1 Draw.%% d1)
+juxtapose d1 d2 = (Draw.translate (-0.5,0) Draw.%% Draw.scale 0.5 1 Draw.%% d1)
                     `mappend`
-                  (Draw.translate (1,0) Draw.%% Draw.scale 0.5 1 Draw.%% d2)
+                  (Draw.translate (0.5,0) Draw.%% Draw.scale 0.5 1 Draw.%% d2)
 
 drawing :: Draw.Font -> Draw.Image (Maybe String)
 drawing font = juxtapose (textBox (Draw.Color 1 0 0 1) font "A") 

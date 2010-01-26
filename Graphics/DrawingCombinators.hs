@@ -234,8 +234,8 @@ infixr 1 %%
 (%%) :: Affine -> Image a -> Image a
 tr' %% d = Image render pick
     where
-    render tr col = dRender d (tr' `compose` tr) col
-    pick tr z = dPick d (tr' `compose` tr) z
+    render tr col = dRender d (tr `compose` tr') col
+    pick tr z = dPick d (tr `compose` tr') z
 
 
 {------------
