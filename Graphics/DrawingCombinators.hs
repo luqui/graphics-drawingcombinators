@@ -99,10 +99,6 @@ instance (Monoid m) => Monoid (Image m) where
 render :: Image a -> IO ()
 render d = do
     GL.preservingAttrib [GL.AllServerAttributes] $ do
-        GL.texture GL.Texture2D GL.$= GL.Enabled
-        GL.blend GL.$= GL.Enabled
-        GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-        GL.depthFunc GL.$= Nothing
         dRender d identity mempty
 
 -- |Like @render@, but clears the screen first. This is so
@@ -147,6 +143,18 @@ init = do
     when (not wasinit) $ do
         success <- TTF.init
         when (not success) $ fail "SDL_ttf initialization failed"
+        
+    -- It's ok to do the GL setup here, and when rendering to not have to re-set these things each time.
+    GL.texture GL.Texture2D GL.$= GL.Enabled
+    GL.blend GL.$= GL.Enabled
+    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+    -- For now we assume the user wants antialiasing; the general solution is not clear - maybe let the
+    -- user do the opengl setup stuff himself? otherwise need to wrap all of the possible things GL lets
+    -- you set.
+    GL.polygonSmooth GL.$= GL.Enabled
+    GL.lineSmooth GL.$= GL.Enabled
+    GL.lineWidth GL.$= 1.5
+    GL.hint GL.LineSmooth GL.$= GL.DontCare
 
 
 
@@ -197,7 +205,7 @@ line src dest = Image render (picker render)
         
 
 -- | A regular polygon centered at the origin with n sides.
-regularPoly :: Int -> Image Any
+regularPoly :: Integral a => a -> Image Any
 regularPoly n = Image render (picker render)
     where
     render tr col = do

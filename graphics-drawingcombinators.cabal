@@ -16,3 +16,5 @@ Build-Type: Simple
 Build-Depends: base <= 4, mtl, containers, SDL, SDL-ttf, SDL-image, OpenGL
 Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
 Extra-Source-Files: example.hs
+ghc-options : -O2 -Wall
+Ghc-Prof-Options:  -prof -auto-all
