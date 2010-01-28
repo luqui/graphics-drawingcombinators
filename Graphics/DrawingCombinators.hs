@@ -33,7 +33,7 @@ module Graphics.DrawingCombinators
     -- * Geometry
     -- 
     -- $geometry
-    , point, line, regularPoly, circle, convexPoly, (%%)
+    , point, line, regularPoly, circle, convexPoly, (%%), bezierCurve
     -- * Colors
     , Color(..), modulate, tint
     -- * Sprites (images from files)
@@ -177,6 +177,9 @@ init = do
 toVertex :: Affine -> R2 -> GL.Vertex2 GL.GLdouble
 toVertex tr p = let (x,y) = tr `apply` p in GL.Vertex2 x y
 
+toVertex3 :: R -> Affine -> R2 -> GL.Vertex3 GL.GLdouble
+toVertex3 z tr p = let (x,y) = tr `apply` p in GL.Vertex3 x y z
+
 inSet :: (Ord a) => a -> Set.Set a -> Any
 inSet x s = Any (x `Set.member` s)
 
@@ -232,6 +235,17 @@ convexPoly points = rendererImage render'
     render' tr _ = 
         GL.renderPrimitive GL.Polygon $ 
             mapM_ (GL.vertex . toVertex tr) points
+
+-- | Bezier Curve
+bezierCurve :: [R2] -> Image Any
+bezierCurve controlPoints = rendererImage render'
+    where  -- todo check at least 4 points?
+      render' tr _ = do
+        let ps = map (toVertex3 0 tr) controlPoints
+        m <- GL.newMap1 (0,1) ps :: IO (GL.GLmap1 (GL.Vertex3) R)
+        GL.map1 GL.$= Just m
+        GL.mapGrid1 GL.$= (100, (0::R, 1))
+        GL.evalMesh1 GL.Line (1,100) 
 
 {-----------------
   Transformations
