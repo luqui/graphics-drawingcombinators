@@ -45,8 +45,10 @@ where
 
 import Prelude hiding (init)
 import Graphics.DrawingCombinators.Affine
+
+import Data.Maybe(fromMaybe)
 import Control.Applicative (Applicative(..), liftA2, (*>))
-import Control.Monad (when, forM_)
+import Control.Monad (unless, forM_)
 import Data.Monoid (Monoid(..), Any(..))
 import System.Mem.Weak (addFinalizer)
 import qualified Data.Set as Set
@@ -77,7 +79,7 @@ instance Functor Image where
 instance Applicative Image where
     pure x = Image { 
         dRender = (pure.pure.pure) (),
-        dPick = \tr z -> pure (z, const x)
+        dPick = \_ z -> pure (z, const x)
       }
     
     df <*> dx = Image {
@@ -97,9 +99,7 @@ instance (Monoid m) => Monoid (Image m) where
 -- system (which, in absense of information, is (-1,-1) in the
 -- lower left and (1,1) in the upper right).
 render :: Image a -> IO ()
-render d = do
-    GL.preservingAttrib [GL.AllServerAttributes] $ do
-        dRender d identity mempty
+render d = GL.preservingAttrib [GL.AllServerAttributes] $ dRender d identity mempty
 
 -- |Like @render@, but clears the screen first. This is so
 -- you can use this module and pretend that OpenGL doesn't
@@ -114,14 +114,14 @@ clearRender d = do
 -- @`over`@) intersecting that bounding box.
 selectRegion :: R2 -> R2 -> Image a -> IO a
 selectRegion ll ur drawing = do
-    (lookup, recs) <- GL.getHitRecords 64 $ do -- XXX hard coded crap
+    (lookup', recs) <- GL.getHitRecords 64 $ -- XXX hard coded crap
         GL.preservingMatrix $ do
             GLU.ortho2D (fst ll) (fst ur) (snd ll) (snd ur)
-            (_, lookup) <- dPick drawing identity 0
-            return lookup
-    let nameList = concatMap (\(GL.HitRecord _ _ ns) -> ns) (maybe [] id recs)
+            (_, lookup') <- dPick drawing identity 0
+            return lookup'
+    let nameList = concatMap (\(GL.HitRecord _ _ ns) -> ns) (fromMaybe [] recs)
     let nameSet  = Set.fromList $ map (\(GL.Name n) -> n) nameList
-    return $ lookup nameSet
+    return $ lookup' nameSet
 
 -- | Sample the value of the image at a point.  
 --
@@ -140,9 +140,9 @@ sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
 init :: IO ()
 init = do
     wasinit <- TTF.wasInit
-    when (not wasinit) $ do
+    unless wasinit $ do
         success <- TTF.init
-        when (not success) $ fail "SDL_ttf initialization failed"
+        unless success $ fail "SDL_ttf initialization failed"
         
     -- It's ok to do the GL setup here, and when rendering to not have to re-set these things each time.
     GL.texture GL.Texture2D GL.$= GL.Enabled
@@ -185,20 +185,23 @@ picker r tr z = z `seq` do
     GL.withName (GL.Name z) (r tr mempty)
     return (z+1, inSet z)
 
+rendererImage :: Renderer -> Image Any
+rendererImage f = Image f (picker f)
+
 -- | A single pixel at the specified point.
 --
 -- > [[point p]] r | [[r]] == [[p]] = (one, Any True) 
 -- >               | otherwise      = (zero, Any False)
 point :: R2 -> Image Any
-point p = Image render (picker render)
+point p = rendererImage render'
     where
-    render tr col = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
+    render' tr _ = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
 
 -- | A line connecting the two given points.
 line :: R2 -> R2 -> Image Any
-line src dest = Image render (picker render)
+line src dest = rendererImage render'
     where
-    render tr col = 
+    render' tr _ = 
         GL.renderPrimitive GL.Lines $ do
             GL.vertex $ toVertex tr src
             GL.vertex $ toVertex tr dest
@@ -206,9 +209,9 @@ line src dest = Image render (picker render)
 
 -- | A regular polygon centered at the origin with n sides.
 regularPoly :: Integral a => a -> Image Any
-regularPoly n = Image render (picker render)
+regularPoly n = rendererImage render'
     where
-    render tr col = do
+    render' tr _ = do
         let scaler = 2 * pi / fromIntegral n
         GL.renderPrimitive GL.TriangleFan $ do
             GL.vertex $ toVertex tr (0,0)
@@ -220,13 +223,13 @@ regularPoly n = Image render (picker render)
 --
 -- > circle = regularPoly 24
 circle :: Image Any
-circle = regularPoly 24
+circle = regularPoly (24 :: Int)
 
 -- | A convex polygon given by the list of points.
 convexPoly :: [R2] -> Image Any
-convexPoly points = Image render (picker render)
+convexPoly points = rendererImage render'
     where
-    render tr col = 
+    render' tr _ = 
         GL.renderPrimitive GL.Polygon $ 
             mapM_ (GL.vertex . toVertex tr) points
 
@@ -240,9 +243,9 @@ infixr 1 %%
 --
 -- > [[tr % im]] = [[im]] . inverse [[tr]]
 (%%) :: Affine -> Image a -> Image a
-tr' %% d = Image render pick
+tr' %% d = Image render' pick
     where
-    render tr col = dRender d (tr `compose` tr') col
+    render' tr col = dRender d (tr `compose` tr') col
     pick tr z = dPick d (tr `compose` tr') z
 
 
@@ -285,9 +288,9 @@ modulate (Color r g b a) (Color r' g' b' a') = Color (r*r') (g*g') (b*b') (a*a')
 -- > [[tint c im]] = first (modulate c) . [[im]]
 -- >    where first f (x,y) = (f x, y)
 tint :: Color -> Image a -> Image a
-tint c d = Image render (dPick d)
+tint c d = Image render' (dPick d)
     where
-    render tr col = do
+    render' tr col = do
         let oldColor = col
             newColor = modulate c col
         setColor newColor
@@ -353,11 +356,12 @@ surfaceToSprite scaling surf = do
     let pixelFormat = case bytesPerPixel of
                         3 -> GL.RGB
                         4 -> GL.RGBA
+                        _ -> error "Unknown pixel format"
     GL.textureFunction GL.$= GL.Modulate
     GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Nothing), GL.Linear')
     GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Mirrored, GL.Repeat)
     GL.textureWrapMode GL.Texture2D GL.T GL.$= (GL.Mirrored, GL.Repeat)
-    GL.texImage2D Nothing GL.NoProxy 0 (GL.RGBA')  -- ? proxy level internalformat
+    GL.texImage2D Nothing GL.NoProxy 0 GL.RGBA'  -- ? proxy level internalformat
                   (GL.TextureSize2D 
                     (fromIntegral $ SDL.surfaceGetWidth surf')
                     (fromIntegral $ SDL.surfaceGetHeight surf'))
@@ -367,16 +371,15 @@ surfaceToSprite scaling surf = do
     let (w,w') = (SDL.surfaceGetWidth  surf, SDL.surfaceGetWidth  surf')
         (h,h') = (SDL.surfaceGetHeight surf, SDL.surfaceGetHeight surf')
     let (scalew, scaleh) = scaleFunc w h
-    let sprite = Sprite { spriteObject = obj
-                        , spriteWidthRat  = fromIntegral w / fromIntegral w'
-                        , spriteHeightRat = fromIntegral h / fromIntegral h'
-                        , spriteWidth  = scalew
-                        , spriteHeight = scaleh
-                        }
+    let sprite' = Sprite { spriteObject = obj
+                         , spriteWidthRat  = fromIntegral w / fromIntegral w'
+                         , spriteHeightRat = fromIntegral h / fromIntegral h'
+                         , spriteWidth  = scalew
+                         , spriteHeight = scaleh
+                         }
                             
-    addFinalizer sprite $ do
-        freeTexture obj
-    return sprite
+    addFinalizer sprite' $ freeTexture obj
+    return sprite'
 
     where
     scaleFunc w h =
@@ -389,8 +392,9 @@ surfaceToSprite scaling surf = do
              ScaleHeight ->
                  ( fromIntegral w / fromIntegral h, 1 )
 
+nextPowerOf2 :: (Ord a, Num a) => a -> a
 nextPowerOf2 x = head $ dropWhile (< x) $ iterate (*2) 1
-isPowerOf2 x = x == nextPowerOf2 x
+
 
 padSurface :: SDL.Surface -> IO SDL.Surface
 padSurface surf 
@@ -415,9 +419,9 @@ imageToSprite scaling path = Image.load path >>= surfaceToSprite scaling
 -- > [[sprite s]] p | p `elem` [-1,1]^2 = ([[s]] p, Any True) 
 -- >                | otherwise         = (zero, Any False)
 sprite :: Sprite -> Image Any
-sprite spr = Image render (picker render)
+sprite spr = rendererImage render'
     where
-    render tr colt = do
+    render' tr _ = do
         oldtex <- GL.get (GL.textureBinding GL.Texture2D)
         GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
         GL.renderPrimitive GL.Quads $ do
@@ -455,4 +459,4 @@ textSprite font str = do
 -- | The image representing some text rendered with a font.  The resulting 
 -- string will have height 1.
 text :: Font -> String -> Image Any
-text font str = sprite $ unsafePerformIO $ textSprite font str
+text font s = sprite $ unsafePerformIO $ textSprite font s
