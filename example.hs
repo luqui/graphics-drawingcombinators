@@ -3,6 +3,9 @@ import qualified Graphics.UI.SDL as SDL
 import Data.Monoid
 import Debug.Trace
 
+import System.Environment(getArgs)
+
+resX, resY :: Int
 resX = 640
 resY = 480
 
@@ -36,7 +39,12 @@ drawing font = juxtapose (textBox (Draw.Color 1 0 0 1) font "A")
 main :: IO ()
 main = do
     initScreen
-    font <- Draw.openFont "font.ttf"
+    args <- getArgs
+    let fontFileName = case length args of
+                         1 -> head args
+                         _ -> error "Must pass the name of a .ttf font file. Try running:\n\t<this program> `fc-match -v Sans | grep ttf | cut -d\\\" -f2`"
+                         
+    font <- Draw.openFont fontFileName
     Draw.clearRender (drawing font)
     SDL.glSwapBuffers
     waitClicks font
@@ -57,7 +65,3 @@ main = do
                       Just str  -> putStrLn str >> waitClicks font
              _ -> waitClicks font
 
-untilM :: (Monad m) => (a -> Bool) -> m a -> m a
-untilM f m = do
-    x <- m
-    if f x then return x else untilM f m 
