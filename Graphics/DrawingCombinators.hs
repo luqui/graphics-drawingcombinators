@@ -28,8 +28,6 @@ module Graphics.DrawingCombinators
     , Image, render, clearRender
     -- * Selection
     , sample
-    -- * Initialization
-    , init
     -- * Geometry
     -- 
     -- $geometry
@@ -39,22 +37,24 @@ module Graphics.DrawingCombinators
     -- * Sprites (images from files)
     , Sprite, SpriteScaling(..), surfaceToSprite, imageToSprite, sprite
     -- * Text
-    , Font, openFont, text
+    , Font, openFont, text, textWidth
     )
 where
 
 import Prelude hiding (init)
 import Graphics.DrawingCombinators.Affine
-import Control.Applicative (Applicative(..), liftA2, (*>))
+import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
 import Control.Monad (when, forM_)
 import Data.Monoid (Monoid(..), Any(..))
 import System.Mem.Weak (addFinalizer)
 import qualified Data.Set as Set
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Graphics.Rendering.OpenGL.GLU as GLU
+--import qualified Codec.Image.STB as Image
+--import qualified Data.Bitmap.IO as Bitmap
+import qualified Graphics.Rendering.FTGL as FTGL
 import qualified Graphics.UI.SDL as SDL
 import qualified Graphics.UI.SDL.Image as Image
-import qualified Graphics.UI.SDL.TTF as TTF
 import Data.IORef (IORef, newIORef, atomicModifyIORef)
 import System.IO.Unsafe (unsafePerformIO)  -- for hacking around OpenGL bug :-(
 
@@ -134,19 +134,6 @@ sample :: R2 -> Image a -> IO a
 sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
     where
     e = 1/1024
-
-
-{----------------
-  Initialization
-----------------}
-
--- |Perform initialization of the library.  This can throw an exception.
-init :: IO ()
-init = do
-    wasinit <- TTF.wasInit
-    when (not wasinit) $ do
-        success <- TTF.init
-        when (not success) $ fail "SDL_ttf initialization failed"
 
 
 
@@ -429,22 +416,29 @@ sprite spr = Image render (picker render)
  Text
 ---------}
 
-data Font = Font { getFont :: TTF.Font }
+data Font = Font { getFont :: FTGL.Font }
 
 -- | Load a TTF font from a file with the given point size (higher numbers
 -- mean smoother text but more expensive rendering).
-openFont :: String -> Int -> IO Font
-openFont path res = do
-    font <- TTF.openFont path res
-    let font' = Font font
-    return font'
+openFont :: String -> IO Font
+openFont path = Font <$> FTGL.createPolygonFont path
 
-textSprite :: Font -> String -> IO Sprite
-textSprite font str = do
-    surf <- TTF.renderTextBlended (getFont font) str (SDL.Color 255 255 255)
-    surfaceToSprite ScaleHeight surf
-
--- | The image representing some text rendered with a font.  The resulting 
--- string will have height 1.
+-- | The image representing some text rendered with a font.  The baseline
+-- is at y=0, the text starts at x=0, and the height of a lowercase x is 
+-- 1 unit.
 text :: Font -> String -> Image Any
-text font str = sprite $ unsafePerformIO $ textSprite font str
+text font str = Image render (picker render)
+    where
+    render tr colt = do
+        GL.preservingMatrix $ do
+            multGLmatrix tr
+            GL.scale (1/36 :: GL.GLdouble) (1/36) 1
+            _ <- FTGL.setFontFaceSize (getFont font) 72 72 
+            FTGL.renderFont (getFont font) str FTGL.All
+            return ()
+
+-- | @textWidth font str@ is the width of the text in @text font str@.
+textWidth :: Font -> String -> R
+textWidth font text = (/36) . realToFrac . unsafePerformIO $ do
+    _ <- FTGL.setFontFaceSize (getFont font) 72 72 
+    FTGL.getFontAdvance (getFont font) text

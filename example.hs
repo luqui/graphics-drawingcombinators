@@ -1,6 +1,7 @@
 import qualified Graphics.DrawingCombinators as Draw
 import qualified Graphics.UI.SDL as SDL
 import Data.Monoid
+import Debug.Trace
 
 resX = 640
 resY = 480
@@ -10,12 +11,16 @@ initScreen = do
     SDL.init [SDL.InitTimer, SDL.InitVideo]
     -- resolution & color depth
     SDL.setVideoMode resX resY 32 [SDL.OpenGL]
-    Draw.init
     return ()
+
+centerText :: Draw.Font -> String -> Draw.Image Any
+centerText font str = Draw.translate (-w/2,-0.75) Draw.%% Draw.text font str
+    where
+    w = Draw.textWidth font str
 
 textBox :: Draw.Color -> Draw.Font -> String -> Draw.Image (Maybe String)
 textBox color font text = fmap (\(Any b) -> if b then Just text else Nothing) $
-                            Draw.text font text
+                            centerText font text
                                 `mappend`
                             Draw.tint color (Draw.convexPoly [(1,1),(1,-1),(-1,-1),(-1,1)])
 
@@ -31,7 +36,7 @@ drawing font = juxtapose (textBox (Draw.Color 1 0 0 1) font "A")
 main :: IO ()
 main = do
     initScreen
-    font <- Draw.openFont "font.ttf" 72
+    font <- Draw.openFont "font.ttf"
     Draw.clearRender (drawing font)
     SDL.glSwapBuffers
     waitClicks font

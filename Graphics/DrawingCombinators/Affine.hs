@@ -11,13 +11,16 @@ roughly translate, rotate, scale, and compositions thereof.
 module Graphics.DrawingCombinators.Affine
     ( R, R2, Affine
     , compose, apply, identity, translate, rotate, scale
+    , multGLmatrix
     )
 where
 
-import Graphics.Rendering.OpenGL.GL (GLdouble)
+import qualified Graphics.Rendering.OpenGL.GL as GL
 import Data.Monoid
+import Foreign.Marshal.Array (withArray, newArray)
+import Foreign (Ptr)
 
-type R = GLdouble
+type R = GL.GLdouble
 type R2 = (R,R)
 
 -- | An Affine transformation from R2 to R2.  
@@ -75,3 +78,10 @@ scale :: R -> R -> Affine
 scale x y = M x 0 0
               0 y 0
 
+multGLmatrix :: Affine -> IO ()
+multGLmatrix (M x11 x12 x13 x21 x22 x23) = do
+    m <- GL.newMatrix GL.ColumnMajor [ x11 , x21 , 0 , 0
+                                     , x12 , x22 , 0 , 0
+                                     , 0   , 0   , 1 , 0
+                                     , x13 , x23 , 0 , 1 ]
+    GL.multMatrix (m :: GL.GLmatrix R)
