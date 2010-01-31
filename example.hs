@@ -33,8 +33,6 @@ quadrants img = mconcat [
 circleText :: Draw.Font -> String -> Draw.Image Any
 circleText font str = unitText font str `mappend` Draw.tint (Draw.Color 0 0 1 0.5) Draw.circle
 
-bez = Draw.bezierCurve []
-
 main :: IO ()
 main = do
     initScreen
@@ -46,7 +44,7 @@ main = do
         _ -> error "Usage: drawingcombinators-example some_font.ttf"
         
         
-    Draw.clearRender (bez `mappend` quadrants (circleText font "Hello, World!"))
+    Draw.clearRender (quadrants (circleText font "Hello, World!"))
     SDL.glSwapBuffers
     waitClose
     SDL.quit
