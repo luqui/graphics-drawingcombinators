@@ -2,7 +2,6 @@ import qualified Graphics.DrawingCombinators as Draw
 import Graphics.DrawingCombinators ((%%))
 import qualified Graphics.UI.SDL as SDL
 import Data.Monoid
-import Data.List (isSuffixOf)
 
 import System.Environment(getArgs)
 
@@ -42,7 +41,7 @@ main = do
         [fontName] -> do
             font <- Draw.openFont fontName
             return font
-        _ -> fail "Usage: drawingcombinators-example some_font.ttf"
+        _ -> error "Usage: drawingcombinators-example some_font.ttf"
         
         
     Draw.clearRender (quadrants (circleText font "Hello, World!"))
