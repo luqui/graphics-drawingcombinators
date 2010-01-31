@@ -25,7 +25,7 @@ type R2 = (R,R)
 --
 -- > [Affine] = R2 -> R2
 --
--- The Monoid instance @(identity, compose)@
+-- With the Monoid instance @(identity, compose)@
 data Affine = M !R !R !R
                 !R !R !R
              --  0  0  1
@@ -51,6 +51,9 @@ identity = M 1 0 0
              0 1 0
 
 -- | > [[inverse x]] = inverse [[x]]
+--
+-- If the transformation is not invertible, this operation is
+-- undefined.
 inverse :: Affine -> Affine
 inverse (M x11 x12 x13 x21 x22 x23) = 
     M (s*x22)   (-s*x12)  (s*x22 *x13 - s*x12*x23)
@@ -76,6 +79,8 @@ scale :: R -> R -> Affine
 scale x y = M x 0 0
               0 y 0
 
+-- | Multiply this Affine by the top of the OpenGL matrix stack.
+-- Don't mind this, it\'s an implementation detail.
 multGLmatrix :: Affine -> IO ()
 multGLmatrix (M x11 x12 x13 x21 x22 x23) = do
     m <- GL.newMatrix GL.ColumnMajor [ x11 , x21 , 0 , 0

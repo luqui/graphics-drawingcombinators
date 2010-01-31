@@ -8,17 +8,46 @@
 -- Stability   : experimental
 -- Portability : needs GADTs and rank n types
 --
--- Drawing combinators as a functional interface to OpenGL
--- (for 2D drawings only... for now).
+-- Drawing combinators as a functional interface to 2D graphics using OpenGL.
 --
 -- This module is intended to be imported @qualified@, as in:
 --
--- > import Graphics.DrawingCombinators as Draw
+-- > import qualified Graphics.DrawingCombinators as Draw
 --
--- It is recommended that you use this module in combination
--- with SDL; it has not been tested in any other environments.
--- For some reason the GL picking stuff ('sample') crashes GHCi, 
--- but it works okay compiled.
+-- Whenever possible, a /denotational semantics/ for operations in this library
+-- is given.  Read @[[x]]@ as \"the meaning of @x@\".
+--
+-- Intuitively, an @Image a@ is an infinite plane of pairs of colors /and/
+-- @a@\'s.  The colors are what are drawn on the screen when you "render", and
+-- the @a@\'s are what you can recover from coordinates using @sample@.  The
+-- latter allows you to tell, for example, what a user clicked on.
+--
+-- The following discussion is about the associated data.  If you are only
+-- interested in drawing, rather than mapping from coordinates to values, you
+-- can ignore the following and just use @mappend@ and @mconcat@ to overlay
+-- images.
+--
+-- Wrangling the @a@\'s -- the associated data with each \"pixel\" -- is done
+-- using the "Functor", "Applicative", and "Monoid" instances.  
+--
+-- The primitive Images such as "circle" and "text" all return @Image Any@
+-- objects.  "Any" is just a wrapper around "Bool", with @(||)@ as its monoid
+-- operator.  So e.g. the points inside the circle will have the value @Any
+-- True@, and those outside will have the value @Any False@.  Returning @Any@
+-- instead of plain @Bool@ allows you to use @Image@s as a monoid, e.g.
+-- "mappend" to overlay two images. But if you are doing anything with
+-- sampling, you probably want to map this to something.  Here is a drawing
+-- with two circles that reports which one was hit:
+--
+-- > twoCircles :: Image String
+-- > twoCircles = liftA2 test (translate (-1,0) %% circle) (translate (1,0) %% circle)
+-- >   where 
+-- >   test (Any False) (Any False) = "Miss!"
+-- >   test (Any False) (Any True)  = "Hit Right!"
+-- >   test (Any True)  (Any False) = "Hit Left!"
+-- >   test (Any True)  (Any True)  = "Hit Both??!"
+--
+-- The last case would only be possible if the circles were overlapping.
 --------------------------------------------------------------
 
 module Graphics.DrawingCombinators
@@ -29,8 +58,6 @@ module Graphics.DrawingCombinators
     -- * Selection
     , sample
     -- * Geometry
-    -- 
-    -- $geometry
     , point, line, regularPoly, circle, convexPoly, (%%), bezierCurve
     -- * Colors
     , Color(..), modulate, tint
@@ -61,6 +88,10 @@ type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
 -- | The type of images.
 --
 -- > [[Image a]] = R2 -> (Color, a)
+--
+-- The semantics of the instances are all consistent with /type class morphism/.
+-- I.e. Functor, Applicative, and Monoid act point-wise, using the @Color@ monoid
+-- described below.
 data Image a = Image { dRender :: Renderer
                      , dPick   :: Picker a
                      }
@@ -133,6 +164,9 @@ selectRegion ll ur drawing = do
 -- | Sample the value of the image at a point.  
 --
 -- > [[sample p i]] = snd ([[i]] [[p]])
+--
+-- Even though this ought to be a pure function, it is /not/ safe to
+-- @unsafePerformIO@ it, because it uses OpenGL state.
 sample :: R2 -> Image a -> IO a
 sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
     where
@@ -141,18 +175,6 @@ sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
 {----------------
   Geometry
 -----------------}
-
--- $geometry
--- The geomertic combinators all return an 'Image' 'Any'.  'Any'
--- is a wrapper around 'Bool' with @(False, (||))@ as its 'Monoid'.
--- This is so you can use the 'Monoid' instance on 'Image' to
--- automatically get the union of primitives.  So:
---
--- > circle `mappend` (translate (1,0) %% circle)
---
--- Will have the value @Any True@ when /either/ of the circles is
--- sampled.  To extract the Bool, use 'getAny', or pattern match
--- on @Any True@ and @Any False@ instead of @True@ and @False@.
 
 toVertex :: Affine -> R2 -> GL.Vertex2 GL.GLdouble
 toVertex tr p = let (x,y) = tr `apply` p in GL.Vertex2 x y
@@ -171,7 +193,7 @@ picker r tr z = z `seq` do
 rendererImage :: Renderer -> Image Any
 rendererImage f = Image f (picker f)
 
--- | A single pixel at the specified point.
+-- | A single \"pixel\" at the specified point.
 --
 -- > [[point p]] r | [[r]] == [[p]] = (one, Any True) 
 -- >               | otherwise      = (zero, Any False)
@@ -209,7 +231,10 @@ convexPoly points = rendererImage $ \tr _ -> do
     GL.renderPrimitive GL.Polygon $ 
         mapM_ (GL.vertex . toVertex tr) points
 
--- | Bezier Curve
+-- | A Bezier curve given a list of control points.  It is a curve
+-- that begins at the first point in the list, ends at the last one,
+-- and smoothly interpolates between the rest.  It is the empty
+-- image ("mempty") if zero or one points are given.
 bezierCurve :: [R2] -> Image Any
 bezierCurve controlPoints = rendererImage $ \tr _ -> do
     -- todo check at least 4 points?
@@ -290,7 +315,7 @@ tint c d = Image render' (dPick d)
   Sprites (bitmap images)
 -------------------------}
 
--- | A Sprite represents a bitmap image.
+-- | A Sprite represents a finite bitmap image.
 --
 -- > [[Sprite]] = [-1,1]^2 -> Color
 data Sprite = Sprite { spriteObject :: GL.TextureObject }
