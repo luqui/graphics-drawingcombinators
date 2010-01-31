@@ -10,15 +10,13 @@ roughly translate, rotate, scale, and compositions thereof.
 
 module Graphics.DrawingCombinators.Affine
     ( R, R2, Affine
-    , compose, apply, identity, translate, rotate, scale
+    , compose, apply, identity, translate, rotate, scale, inverse
     , multGLmatrix
     )
 where
 
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import Data.Monoid
-import Foreign.Marshal.Array (withArray, newArray)
-import Foreign (Ptr)
 
 type R = GL.GLdouble
 type R2 = (R,R)

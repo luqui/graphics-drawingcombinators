@@ -17,13 +17,13 @@ Extra-Source-Files: example.hs
 cabal-Version: >= 1.2
 
 Library
-  Build-Depends: base <= 4, mtl, containers, SDL, SDL-ttf, SDL-image, OpenGL
+  Build-Depends: base < 5, mtl, containers, OpenGL >= 2.4 && < 2.5, stb-image >= 0.2 && < 0.3, bitmap-opengl < 0.1, FTGL
   Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
   ghc-options : -O2 -Wall 
   Ghc-Prof-Options:  -prof -auto-all
 
 Executable drawingcombinators-example
-  Build-Depends: base <= 4, mtl, containers, SDL, SDL-ttf, SDL-image, OpenGL
+  Build-Depends: SDL >= 0.5 && < 0.6
   main-is: example.hs
   ghc-options : -O2 -Wall
   Ghc-Prof-Options:  -prof -auto-all

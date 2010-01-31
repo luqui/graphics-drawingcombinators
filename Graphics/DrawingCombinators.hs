@@ -35,7 +35,7 @@ module Graphics.DrawingCombinators
     -- * Colors
     , Color(..), modulate, tint
     -- * Sprites (images from files)
-    , Sprite, SpriteScaling(..), surfaceToSprite, imageToSprite, sprite
+    , Sprite, openSprite, sprite
     -- * Text
     , Font, openFont, text, textWidth
     )
@@ -44,19 +44,16 @@ where
 import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
 import Data.Maybe(fromMaybe)
-import Control.Monad (unless, forM_)
+import Control.Monad (forM_)
 import Data.Monoid (Monoid(..), Any(..))
 import System.Mem.Weak (addFinalizer)
 import qualified Data.Set as Set
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Graphics.Rendering.OpenGL.GLU as GLU
---import qualified Codec.Image.STB as Image
---import qualified Data.Bitmap.IO as Bitmap
+import qualified Codec.Image.STB as Image
+import qualified Data.Bitmap.OpenGL as Bitmap
 import qualified Graphics.Rendering.FTGL as FTGL
-import qualified Graphics.UI.SDL as SDL
-import qualified Graphics.UI.SDL.Image as Image
-import Data.IORef (IORef, newIORef, atomicModifyIORef)
-import System.IO.Unsafe (unsafePerformIO)  -- for hacking around OpenGL bug :-(
+import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
 
 type Renderer = Affine -> Color -> IO ()
 type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
@@ -179,31 +176,26 @@ rendererImage f = Image f (picker f)
 -- > [[point p]] r | [[r]] == [[p]] = (one, Any True) 
 -- >               | otherwise      = (zero, Any False)
 point :: R2 -> Image Any
-point p = rendererImage render'
-    where
-    render' tr _ = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
+point p = rendererImage $ \tr _ -> do
+    GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
 
 -- | A line connecting the two given points.
 line :: R2 -> R2 -> Image Any
-line src dest = rendererImage render'
-    where
-    render' tr _ = 
-        GL.renderPrimitive GL.Lines $ do
-            GL.vertex $ toVertex tr src
-            GL.vertex $ toVertex tr dest
+line src dest = rendererImage $ \tr _ -> do
+    GL.renderPrimitive GL.Lines $ do
+        GL.vertex $ toVertex tr src
+        GL.vertex $ toVertex tr dest
         
 
 -- | A regular polygon centered at the origin with n sides.
 regularPoly :: Integral a => a -> Image Any
-regularPoly n = rendererImage render'
-    where
-    render' tr _ = do
-        let scaler = 2 * pi / fromIntegral n
-        GL.renderPrimitive GL.TriangleFan $ do
-            GL.vertex $ toVertex tr (0,0)
-            forM_ [0..n] $ \s -> do
-                let theta = scaler * fromIntegral s
-                GL.vertex $ toVertex tr (cos theta, sin theta)
+regularPoly n = rendererImage $ \tr _ -> do
+    let scaler = 2 * pi / fromIntegral n
+    GL.renderPrimitive GL.TriangleFan $ do
+        GL.vertex $ toVertex tr (0,0)
+        forM_ [0..n] $ \s -> do
+            let theta = scaler * fromIntegral s
+            GL.vertex $ toVertex tr (cos theta, sin theta)
 
 -- | An (imperfect) unit circle centered at the origin.  Implemented as:
 --
@@ -213,22 +205,19 @@ circle = regularPoly (24 :: Int)
 
 -- | A convex polygon given by the list of points.
 convexPoly :: [R2] -> Image Any
-convexPoly points = rendererImage render'
-    where
-    render' tr _ = 
-        GL.renderPrimitive GL.Polygon $ 
-            mapM_ (GL.vertex . toVertex tr) points
+convexPoly points = rendererImage $ \tr _ -> do
+    GL.renderPrimitive GL.Polygon $ 
+        mapM_ (GL.vertex . toVertex tr) points
 
 -- | Bezier Curve
 bezierCurve :: [R2] -> Image Any
-bezierCurve controlPoints = rendererImage render'
-    where  -- todo check at least 4 points?
-      render' tr _ = do
-        let ps = map (toVertex3 0 tr) controlPoints
-        m <- GL.newMap1 (0,1) ps :: IO (GL.GLmap1 (GL.Vertex3) R)
-        GL.map1 GL.$= Just m
-        GL.mapGrid1 GL.$= (100, (0::R, 1))
-        GL.evalMesh1 GL.Line (1,100) 
+bezierCurve controlPoints = rendererImage $ \tr _ -> do
+    -- todo check at least 4 points?
+    let ps = map (toVertex3 0 tr) controlPoints
+    m <- GL.newMap1 (0,1) ps :: IO (GL.GLmap1 (GL.Vertex3) R)
+    GL.map1 GL.$= Just m
+    GL.mapGrid1 GL.$= (100, (0::R, 1))
+    GL.evalMesh1 GL.Line (1,100) 
 
 {-----------------
   Transformations
@@ -304,135 +293,36 @@ tint c d = Image render' (dPick d)
 -- | A Sprite represents a bitmap image.
 --
 -- > [[Sprite]] = [-1,1]^2 -> Color
-data Sprite = Sprite { spriteObject :: GL.TextureObject
-                     , spriteWidthRat :: R
-                     , spriteHeightRat :: R
-                     , spriteWidth :: R
-                     , spriteHeight :: R
-                     }
-
--- FUUUUUUUUUCKKK Why doesn't glGenTextures work!!??
--- Anyway here is me hacking around it...
-textureHack :: IORef [GL.GLuint]
-textureHack = unsafePerformIO $ newIORef [1..]
-
-allocateTexture :: IO GL.TextureObject
-allocateTexture = do
-    {- -- This is how it *should* be done.  wtf is going on!?
-    [obj] <- GL.genObjectNames 1
-    good <- GL.isObjectName obj
-    unless good $ fail "Failed to generate valid object wtf!"
-    return obj
-    -}
-    b <- atomicModifyIORef textureHack (\(x:xs) -> (xs,x))
-    return $ GL.TextureObject b
-
-freeTexture :: GL.TextureObject -> IO ()
-freeTexture (GL.TextureObject b) = do
-    GL.deleteObjectNames [GL.TextureObject b]
-    atomicModifyIORef textureHack (\xs -> (b:xs,()))
-
--- | Indicate how a non-square image is to be mapped to a sprite.
-data SpriteScaling
-    -- | ScaleMax will set the maximum of the height and width of the image to 1.
-    = ScaleMax    
-    -- | ScaleWidth will set the width of the image to 1, and scale the height appropriately.
-    | ScaleWidth  
-    -- | ScaleHeight will set the height of the image to 1, and scale the width appropriately. 
-    | ScaleHeight
-
--- | Convert an SDL.Surface to a Sprite.
-surfaceToSprite :: SpriteScaling -> SDL.Surface -> IO Sprite
-surfaceToSprite scaling surf = do
-    surf' <- padSurface surf
-    obj <- allocateTexture
-    oldtex <- GL.get (GL.textureBinding GL.Texture2D)
-    GL.textureBinding GL.Texture2D GL.$= Just obj
-    pixels <- SDL.surfaceGetPixels surf'
-    bytesPerPixel <- SDL.pixelFormatGetBytesPerPixel (SDL.surfaceGetPixelFormat surf')
-    let pixelFormat = case bytesPerPixel of
-                        3 -> GL.RGB
-                        4 -> GL.RGBA
-                        _ -> error "Unknown pixel format"
-    GL.textureFunction GL.$= GL.Modulate
-    GL.textureFilter GL.Texture2D GL.$= ((GL.Linear', Nothing), GL.Linear')
-    GL.textureWrapMode GL.Texture2D GL.S GL.$= (GL.Mirrored, GL.Repeat)
-    GL.textureWrapMode GL.Texture2D GL.T GL.$= (GL.Mirrored, GL.Repeat)
-    GL.texImage2D Nothing GL.NoProxy 0 GL.RGBA'  -- ? proxy level internalformat
-                  (GL.TextureSize2D 
-                    (fromIntegral $ SDL.surfaceGetWidth surf')
-                    (fromIntegral $ SDL.surfaceGetHeight surf'))
-                  0 -- border
-                  (GL.PixelData pixelFormat GL.UnsignedByte pixels)
-    GL.textureBinding GL.Texture2D GL.$= oldtex
-    let (w,w') = (SDL.surfaceGetWidth  surf, SDL.surfaceGetWidth  surf')
-        (h,h') = (SDL.surfaceGetHeight surf, SDL.surfaceGetHeight surf')
-    let (scalew, scaleh) = scaleFunc w h
-    let sprite' = Sprite { spriteObject = obj
-                         , spriteWidthRat  = fromIntegral w / fromIntegral w'
-                         , spriteHeightRat = fromIntegral h / fromIntegral h'
-                         , spriteWidth  = scalew
-                         , spriteHeight = scaleh
-                         }
-                            
-    addFinalizer sprite' $ freeTexture obj
-    return sprite'
-
-    where
-    scaleFunc w h =
-        case scaling of
-             ScaleMax ->
-                 ( fromIntegral w / fromIntegral (max w h)
-                 , fromIntegral h / fromIntegral (max w h) )
-             ScaleWidth ->
-                 ( 1, fromIntegral h / fromIntegral w )
-             ScaleHeight ->
-                 ( fromIntegral w / fromIntegral h, 1 )
-
-nextPowerOf2 :: (Ord a, Num a) => a -> a
-nextPowerOf2 x = head $ dropWhile (< x) $ iterate (*2) 1
-
-
-padSurface :: SDL.Surface -> IO SDL.Surface
-padSurface surf 
-    | newWidth == oldWidth && newHeight == oldHeight = return surf
-    | otherwise = do
-        surf' <- SDL.createRGBSurfaceEndian [] newWidth newHeight 32
-        SDL.setAlpha surf [] 0xff
-        SDL.blitSurface surf Nothing surf' Nothing
-        return surf'
-    where
-    oldWidth  = SDL.surfaceGetWidth surf
-    oldHeight = SDL.surfaceGetHeight surf
-    newWidth  = nextPowerOf2 oldWidth
-    newHeight = nextPowerOf2 oldHeight
+data Sprite = Sprite { spriteObject :: GL.TextureObject }
 
 -- | Load an image from a file and create a sprite out of it.
-imageToSprite :: SpriteScaling -> FilePath -> IO Sprite
-imageToSprite scaling path = Image.load path >>= surfaceToSprite scaling
+openSprite :: FilePath -> IO Sprite
+openSprite path = do
+    e <- Image.loadImage path
+    case e of
+        Left err -> fail err
+        Right bmp -> Sprite <$> Bitmap.makeSimpleBitmapTexture bmp
 
 -- | The image of a sprite at the origin.
 --
 -- > [[sprite s]] p | p `elem` [-1,1]^2 = ([[s]] p, Any True) 
 -- >                | otherwise         = (zero, Any False)
 sprite :: Sprite -> Image Any
-sprite spr = rendererImage render'
+sprite spr = rendererImage $ \tr _ -> do
+    oldtex <- GL.get (GL.textureBinding GL.Texture2D)
+    GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
+    GL.renderPrimitive GL.Quads $ do
+        texcoord 0 0
+        GL.vertex   $ toVertex tr (-1, 1)
+        texcoord 1 0
+        GL.vertex   $ toVertex tr (1, 1)
+        texcoord 1 1
+        GL.vertex   $ toVertex tr (1,-1)
+        texcoord 0 1
+        GL.vertex   $ toVertex tr (-1,-1)
+    GL.textureBinding GL.Texture2D GL.$= oldtex
     where
-    render' tr _ = do
-        oldtex <- GL.get (GL.textureBinding GL.Texture2D)
-        GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
-        GL.renderPrimitive GL.Quads $ do
-            let (xofs, yofs) = (0.5 * spriteWidth spr, 0.5 * spriteHeight spr)
-                (xrat, yrat) = (spriteWidthRat spr, spriteHeightRat spr)
-            GL.texCoord $ GL.TexCoord2 0 (0 :: GL.GLdouble)
-            GL.vertex   $ toVertex tr (-xofs, yofs)
-            GL.texCoord $ GL.TexCoord2 xrat 0
-            GL.vertex   $ toVertex tr (xofs, yofs)
-            GL.texCoord $ GL.TexCoord2 xrat yrat
-            GL.vertex   $ toVertex tr (xofs,-yofs)
-            GL.texCoord $ GL.TexCoord2 0 yrat
-            GL.vertex   $ toVertex tr (-xofs,-yofs)
-        GL.textureBinding GL.Texture2D GL.$= oldtex
+    texcoord x y = GL.texCoord $ GL.TexCoord2 (x :: GL.GLdouble) (y :: GL.GLdouble)
 
 {---------
  Text
@@ -440,27 +330,27 @@ sprite spr = rendererImage render'
 
 data Font = Font { getFont :: FTGL.Font }
 
--- | Load a TTF font from a file with the given point size (higher numbers
--- mean smoother text but more expensive rendering).
+-- | Load a TTF font from a file.
 openFont :: String -> IO Font
-openFont path = Font <$> FTGL.createPolygonFont path
+openFont path = do
+    font <- FTGL.createPolygonFont path
+    addFinalizer font (FTGL.destroyFont font)
+    return $ Font font
 
 -- | The image representing some text rendered with a font.  The baseline
 -- is at y=0, the text starts at x=0, and the height of a lowercase x is 
 -- 1 unit.
 text :: Font -> String -> Image Any
-text font str = Image render (picker render)
-    where
-    render tr colt = do
-        GL.preservingMatrix $ do
-            multGLmatrix tr
-            GL.scale (1/36 :: GL.GLdouble) (1/36) 1
-            _ <- FTGL.setFontFaceSize (getFont font) 72 72 
-            FTGL.renderFont (getFont font) str FTGL.All
-            return ()
+text font str = rendererImage $ \tr _ -> do
+    GL.preservingMatrix $ do
+        multGLmatrix tr
+        GL.scale (1/36 :: GL.GLdouble) (1/36) 1
+        _ <- FTGL.setFontFaceSize (getFont font) 72 72 
+        FTGL.renderFont (getFont font) str FTGL.All
+        return ()
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
-textWidth font text = (/36) . realToFrac . unsafePerformIO $ do
+textWidth font str = (/36) . realToFrac . unsafePerformIO $ do
     _ <- FTGL.setFontFaceSize (getFont font) 72 72 
-    FTGL.getFontAdvance (getFont font) text
+    FTGL.getFontAdvance (getFont font) str

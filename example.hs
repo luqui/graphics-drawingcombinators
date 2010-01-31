@@ -1,7 +1,8 @@
 import qualified Graphics.DrawingCombinators as Draw
+import Graphics.DrawingCombinators ((%%))
 import qualified Graphics.UI.SDL as SDL
 import Data.Monoid
-import Debug.Trace
+import Data.List (isSuffixOf)
 
 import System.Environment(getArgs)
 
@@ -16,52 +17,43 @@ initScreen = do
     SDL.setVideoMode resX resY 32 [SDL.OpenGL]
     return ()
 
-centerText :: Draw.Font -> String -> Draw.Image Any
-centerText font str = Draw.translate (-w/2,-0.75) Draw.%% Draw.text font str
+unitText :: Draw.Font -> String -> Draw.Image Any
+unitText font str = (Draw.translate (-1,0) %% Draw.scale (2/w) (2/w) %% Draw.text font str)
+                        `mappend` 
+                    Draw.tint (Draw.Color 1 0 0 1) (Draw.line (-1,0) (1,0))
     where
     w = Draw.textWidth font str
 
-textBox :: Draw.Color -> Draw.Font -> String -> Draw.Image (Maybe String)
-textBox color font text = fmap (\(Any b) -> if b then Just text else Nothing) $
-                            centerText font text
-                                `mappend`
-                            Draw.tint color (Draw.convexPoly [(1,1),(1,-1),(-1,-1),(-1,1)])
+quadrants :: (Monoid a) => Draw.Image a -> Draw.Image a
+quadrants img = mconcat [ 
+    (Draw.translate (-0.5,0.5) %%), 
+    (Draw.translate (0.5,0.5)   `Draw.compose` Draw.rotate (-pi/2) %%),
+    (Draw.translate (0.5,-0.5)  `Draw.compose` Draw.rotate pi %%),
+    (Draw.translate (-0.5,-0.5) `Draw.compose` Draw.rotate (pi/2) %%)] (Draw.scale 0.5 0.5 %% img)
 
-juxtapose :: (Monoid a) => Draw.Image a -> Draw.Image a -> Draw.Image a
-juxtapose d1 d2 = (Draw.translate (-0.5,0) Draw.%% Draw.scale 0.5 1 Draw.%% d1)
-                    `mappend`
-                  (Draw.translate (0.5,0) Draw.%% Draw.scale 0.5 1 Draw.%% d2)
-
-drawing :: Draw.Font -> Draw.Image (Maybe String)
-drawing font = juxtapose (textBox (Draw.Color 1 0 0 1) font "A") 
-                         (textBox (Draw.Color 0 0 1 1) font "B")
+circleText :: Draw.Font -> String -> Draw.Image Any
+circleText font str = unitText font str `mappend` Draw.tint (Draw.Color 0 0 1 0.5) Draw.circle
 
 main :: IO ()
 main = do
     initScreen
     args <- getArgs
-    let fontFileName = case length args of
-                         1 -> head args
-                         _ -> error "Must pass the name of a .ttf font file. Try running:\n\t<this program> `fc-match -v Sans | grep ttf | cut -d\\\" -f2`"
-                         
-    font <- Draw.openFont fontFileName
-    Draw.clearRender (drawing font)
+    font <- case args of
+        [fontName] -> do
+            font <- Draw.openFont fontName
+            return font
+        _ -> fail "Usage: drawingcombinators-example some_font.ttf"
+        
+        
+    Draw.clearRender (quadrants (circleText font "Hello, World!"))
     SDL.glSwapBuffers
-    waitClicks font
+    waitClose
     SDL.quit
     return ()
-
     where
-    waitClicks font = do
+
+    waitClose = do
         ev <- SDL.waitEvent
         case ev of
              SDL.Quit -> return ()
-             SDL.MouseButtonDown x y _ -> do
-                 let x' = 2*(fromIntegral x / fromIntegral resX) - 1
-                 let y' = 1 - 2*(fromIntegral y / fromIntegral resY)
-                 hit <- Draw.sample (x',y') (drawing font)
-                 case hit of
-                      Nothing   -> waitClicks font
-                      Just str  -> putStrLn str >> waitClicks font
-             _ -> waitClicks font
-
+             _ -> waitClose
