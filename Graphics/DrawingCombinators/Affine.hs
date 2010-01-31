@@ -23,7 +23,7 @@ type R2 = (R,R)
 
 -- | An Affine transformation from R2 to R2.  
 --
--- > [Affine] = R2 -> R2
+-- > [[Affine]] = R2 -> R2
 --
 -- With the Monoid instance @(identity, compose)@
 data Affine = M !R !R !R

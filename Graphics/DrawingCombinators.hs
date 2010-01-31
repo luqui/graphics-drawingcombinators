@@ -17,20 +17,20 @@
 -- Whenever possible, a /denotational semantics/ for operations in this library
 -- is given.  Read @[[x]]@ as \"the meaning of @x@\".
 --
--- Intuitively, an @Image a@ is an infinite plane of pairs of colors /and/
+-- Intuitively, an "Image" @a@ is an infinite plane of pairs of colors /and/
 -- @a@\'s.  The colors are what are drawn on the screen when you "render", and
--- the @a@\'s are what you can recover from coordinates using @sample@.  The
+-- the @a@\'s are what you can recover from coordinates using "sample".  The
 -- latter allows you to tell, for example, what a user clicked on.
 --
 -- The following discussion is about the associated data.  If you are only
 -- interested in drawing, rather than mapping from coordinates to values, you
--- can ignore the following and just use @mappend@ and @mconcat@ to overlay
--- images.
+-- can ignore the following and just use @mappend@ and @mconcat@ (Data.Monoid)
+-- to overlay images.
 --
 -- Wrangling the @a@\'s -- the associated data with each \"pixel\" -- is done
 -- using the "Functor", "Applicative", and "Monoid" instances.  
 --
--- The primitive Images such as "circle" and "text" all return @Image Any@
+-- The primitive @Image@s such as "circle" and "text" all return @Image Any@
 -- objects.  "Any" is just a wrapper around "Bool", with @(||)@ as its monoid
 -- operator.  So e.g. the points inside the circle will have the value @Any
 -- True@, and those outside will have the value @Any False@.  Returning @Any@
@@ -90,7 +90,7 @@ type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
 -- > [[Image a]] = R2 -> (Color, a)
 --
 -- The semantics of the instances are all consistent with /type class morphism/.
--- I.e. Functor, Applicative, and Monoid act point-wise, using the @Color@ monoid
+-- I.e. Functor, Applicative, and Monoid act point-wise, using the "Color" monoid
 -- described below.
 data Image a = Image { dRender :: Renderer
                      , dPick   :: Picker a
@@ -139,7 +139,7 @@ render d = GL.preservingAttrib [GL.AllServerAttributes] $ do
 
     dRender d identity mempty
 
--- |Like @render@, but clears the screen first. This is so
+-- |Like "render", but clears the screen first. This is so
 -- you can use this module and pretend that OpenGL doesn't
 -- exist at all.
 clearRender :: Image a -> IO ()
@@ -154,6 +154,7 @@ selectRegion :: R2 -> R2 -> Image a -> IO a
 selectRegion ll ur drawing = do
     (lookup', recs) <- GL.getHitRecords 64 $ -- XXX hard coded crap
         GL.preservingMatrix $ do
+            GL.loadIdentity
             GLU.ortho2D (fst ll) (fst ur) (snd ll) (snd ur)
             (_, lookup') <- dPick drawing identity 0
             return lookup'
@@ -163,12 +164,12 @@ selectRegion ll ur drawing = do
 
 -- | Sample the value of the image at a point.  
 --
--- > [[sample p i]] = snd ([[i]] [[p]])
+-- > [[sample i p]] = snd ([[i]] p)
 --
 -- Even though this ought to be a pure function, it is /not/ safe to
 -- @unsafePerformIO@ it, because it uses OpenGL state.
-sample :: R2 -> Image a -> IO a
-sample (px,py) = selectRegion (px-e,py-e) (px+e,py+e)
+sample :: Image a -> R2 -> IO a
+sample im (px,py) = selectRegion (px-e,py-e) (px+e,py+e) im
     where
     e = 1/1024
 
@@ -271,7 +272,7 @@ tr' %% d = Image render' pick
 -- so:
 --
 -- > mempty = Color 1 1 1 1
--- > mappend c@(Color _ _ _ a) c'@(Color _ _ _ a') = a*c + (1-a)*c'
+-- > mappend c@(Color _ _ _ a) c' = a*c + (1-a)*c'
 --
 -- Where multiplication is componentwise.  In the semantcs the
 -- values @zero@ and @one@ are used, which are defined as:
