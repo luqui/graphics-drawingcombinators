@@ -17,7 +17,7 @@ Extra-Source-Files: example.hs
 cabal-Version: >= 1.2
 
 Library
-  Build-Depends: base < 5, containers, OpenGL >= 2.4 && < 2.5, stb-image >= 0.2 && < 0.3, bitmap-opengl < 0.1, FTGL
+  Build-Depends: base == 4.*, containers, OpenGL == 2.4.*, stb-image == 0.2.*, bitmap-opengl == 0.0.*, FTGL
   Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
   ghc-options : -Wall 
   Ghc-Prof-Options:  -prof -auto-all
