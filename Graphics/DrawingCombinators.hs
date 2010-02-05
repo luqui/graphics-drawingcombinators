@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 --------------------------------------------------------------
 -- | 
 -- Module      : Graphics.DrawingCombinators
@@ -71,16 +73,21 @@ where
 import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
 import Data.Maybe(fromMaybe)
-import Control.Monad (forM_)
+import Control.Monad (forM_, unless)
 import Data.Monoid (Monoid(..), Any(..))
-import System.Mem.Weak (addFinalizer)
 import qualified Data.Set as Set
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified Codec.Image.STB as Image
 import qualified Data.Bitmap.OpenGL as Bitmap
-import qualified Graphics.Rendering.FTGL as FTGL
 import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
+
+#ifdef LAME_FONTS
+import qualified Graphics.UI.GLUT as GLUT
+#else
+import qualified Graphics.Rendering.FTGL as FTGL
+import System.Mem.Weak (addFinalizer)
+#endif
 
 type Renderer = Affine -> Color -> IO ()
 type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
@@ -354,6 +361,28 @@ sprite spr = rendererImage $ \tr _ -> do
  Text
 ---------}
 
+#ifdef LAME_FONTS
+
+data Font = Font
+
+openFont :: String -> IO Font
+openFont _ = do
+    inited <- GLUT.get GLUT.initState
+    unless inited $ GLUT.initialize "" [] >> return ()
+    return Font
+
+text :: Font -> String -> Image Any
+text Font str = rendererImage $ \tr _ -> do
+    GL.preservingMatrix $ do
+        multGLmatrix tr
+        GL.scale (1/64 :: GL.GLdouble) (1/64) 1
+        GLUT.renderString GLUT.Roman str
+
+textWidth :: Font -> String -> R
+textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GLUT.Roman str))
+
+#else
+
 data Font = Font { getFont :: FTGL.Font }
 
 -- | Load a TTF font from a file.
@@ -380,3 +409,5 @@ textWidth :: Font -> String -> R
 textWidth font str = (/36) . realToFrac . unsafePerformIO $ do
     _ <- FTGL.setFontFaceSize (getFont font) 72 72 
     FTGL.getFontAdvance (getFont font) str
+
+#endif

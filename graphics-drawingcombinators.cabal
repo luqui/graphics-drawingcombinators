@@ -4,7 +4,7 @@ Description:
     have to go into the deep, dark world of imperative stateful
     programming just to draw stuff.  It supports 2D only (for now),
     with support drawing geometry, images, and text.
-Version: 1.1.0
+Version: 1.1.1
 Stability: experimental
 Synopsis: A functional interface to 2D drawing in OpenGL
 License: BSD3
@@ -16,8 +16,17 @@ Build-Type: Simple
 Extra-Source-Files: example.hs
 cabal-Version: >= 1.2
 
+Flag ftgl
+    Description: Does the system have FTGL, thus we could use not sucky fonts
+
 Library
-  Build-Depends: base == 4.*, containers, OpenGL == 2.4.*, stb-image == 0.2.*, bitmap-opengl == 0.0.*, FTGL
-  Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
-  ghc-options : -Wall 
-  Ghc-Prof-Options:  -prof -auto-all
+    Build-Depends: base == 4.*, containers, OpenGL == 2.4.*, stb-image == 0.2.*, bitmap-opengl == 0.0.*
+    Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
+    ghc-options : -Wall 
+    Ghc-Prof-Options:  -prof -auto-all
+
+    if flag(ftgl)
+        Build-Depends: FTGL
+    else
+        Build-Depends: GLUT
+        CPP-Options: -DLAME_FONTS
