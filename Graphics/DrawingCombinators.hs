@@ -8,7 +8,7 @@
 --
 -- Maintainer  : Luke Palmer <lrpalmer@gmail.com>
 -- Stability   : experimental
--- Portability : needs GADTs and rank n types
+-- Portability : tested on GHC only
 --
 -- Drawing combinators as a functional interface to 2D graphics using OpenGL.
 --
@@ -19,25 +19,24 @@
 -- Whenever possible, a /denotational semantics/ for operations in this library
 -- is given.  Read @[[x]]@ as \"the meaning of @x@\".
 --
--- Intuitively, an "Image" @a@ is an infinite plane of pairs of colors /and/
--- @a@\'s.  The colors are what are drawn on the screen when you "render", and
--- the @a@\'s are what you can recover from coordinates using "sample".  The
+-- Intuitively, an 'Image' @a@ is an infinite plane of pairs of colors /and/
+-- @a@\'s.  The colors are what are drawn on the screen when you 'render', and
+-- the @a@\'s are what you can recover from coordinates using 'sample'.  The
 -- latter allows you to tell, for example, what a user clicked on.
 --
 -- The following discussion is about the associated data.  If you are only
 -- interested in drawing, rather than mapping from coordinates to values, you
--- can ignore the following and just use @mappend@ and @mconcat@ (Data.Monoid)
--- to overlay images.
+-- can ignore the following and just use 'mappend' and 'mconcat' to overlay images.
 --
 -- Wrangling the @a@\'s -- the associated data with each \"pixel\" -- is done
--- using the "Functor", "Applicative", and "Monoid" instances.  
+-- using the 'Functor', 'Applicative', and 'Monoid' instances.  
 --
--- The primitive @Image@s such as "circle" and "text" all return @Image Any@
--- objects.  "Any" is just a wrapper around "Bool", with @(||)@ as its monoid
+-- The primitive @Image@s such as 'circle' and 'text' all return @Image Any@
+-- objects.  'Any' is just a wrapper around 'Bool', with @(||)@ as its monoid
 -- operator.  So e.g. the points inside the circle will have the value @Any
 -- True@, and those outside will have the value @Any False@.  Returning @Any@
 -- instead of plain @Bool@ allows you to use @Image@s as a monoid, e.g.
--- "mappend" to overlay two images. But if you are doing anything with
+-- 'mappend' to overlay two images. But if you are doing anything with
 -- sampling, you probably want to map this to something.  Here is a drawing
 -- with two circles that reports which one was hit:
 --
@@ -67,6 +66,7 @@ module Graphics.DrawingCombinators
     , Sprite, openSprite, sprite
     -- * Text
     , Font, openFont, text, textWidth
+    , Monoid(..), Any(..)
     )
 where
 
@@ -97,7 +97,7 @@ type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
 -- > [[Image a]] = R2 -> (Color, a)
 --
 -- The semantics of the instances are all consistent with /type class morphism/.
--- I.e. Functor, Applicative, and Monoid act point-wise, using the "Color" monoid
+-- I.e. Functor, Applicative, and Monoid act point-wise, using the 'Color' monoid
 -- described below.
 data Image a = Image { dRender :: Renderer
                      , dPick   :: Picker a
@@ -146,7 +146,7 @@ render d = GL.preservingAttrib [GL.AllServerAttributes] $ do
 
     dRender d identity mempty
 
--- |Like "render", but clears the screen first. This is so
+-- |Like 'render', but clears the screen first. This is so
 -- you can use this module and pretend that OpenGL doesn't
 -- exist at all.
 clearRender :: Image a -> IO ()
@@ -242,7 +242,7 @@ convexPoly points = rendererImage $ \tr _ -> do
 -- | A Bezier curve given a list of control points.  It is a curve
 -- that begins at the first point in the list, ends at the last one,
 -- and smoothly interpolates between the rest.  It is the empty
--- image ("mempty") if zero or one points are given.
+-- image ('mempty') if zero or one points are given.
 bezierCurve :: [R2] -> Image Any
 bezierCurve controlPoints = rendererImage $ \tr _ -> do
     -- todo check at least 4 points?
@@ -272,27 +272,26 @@ tr' %% d = Image render' pick
   Colors
 -------------}
 
--- | Color is defined in the usual computer graphics sense, of 
+-- | Color is defined in the usual computer graphics sense:
 -- a 4 vector containing red, green, blue, and alpha.
 --
--- The Monoid instance is given by alpha transparency blending,
--- so:
+-- The Monoid instance is given by alpha composition, described
+-- at @http://lukepalmer.wordpress.com/2010/02/05/associative-alpha-blending/@
 --
--- > mempty = Color 1 1 1 1
--- > mappend c@(Color _ _ _ a) c' = a*c + (1-a)*c'
---
--- Where multiplication is componentwise.  In the semantcs the
--- values @zero@ and @one@ are used, which are defined as:
+-- In the semantcs the values @zero@ and @one@ are used, which are defined as:
 --
 -- > zero = Color 0 0 0 0
 -- > one = Color 1 1 1 1
-data Color = Color R R R R
+data Color = Color !R !R !R !R
+    deriving (Eq,Show)
 
 instance Monoid Color where
-    mempty = Color 1 1 1 1
-    mappend (Color r g b a) (Color r' g' b' a') = Color (i r r') (i g g') (i b b') (i a a')
+    mempty = Color 0 0 0 0
+    mappend (Color r g b a) (Color r' g' b' a') = Color (i r r') (i g g') (i b b') γ
         where
-        i x y = a*x + (1-a)*y
+        γ = a + a' - a * a'
+        i | γ == 0    = \_ _ -> 0  -- imples a = a' = 0
+          | otherwise = \x y -> (a*x + (1-a)*a'*y)/γ
 
 -- | Modulate two colors by each other.
 --
