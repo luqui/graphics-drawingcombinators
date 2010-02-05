@@ -14,7 +14,7 @@ Homepage: http://github.com/luqui/graphics-drawingcombinators
 Maintainer: lrpalmer@gmail.com
 Build-Type: Simple
 Extra-Source-Files: example.hs
-cabal-Version: >= 1.2
+cabal-Version: >= 1.6
 
 Flag ftgl
     Description: Does the system have FTGL, thus we could use not sucky fonts
