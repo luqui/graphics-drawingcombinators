@@ -276,7 +276,7 @@ tr' %% d = Image render' pick
 -- a 4 vector containing red, green, blue, and alpha.
 --
 -- The Monoid instance is given by alpha composition, described
--- at @http://lukepalmer.wordpress.com/2010/02/05/associative-alpha-blending/@
+-- at @http:\/\/lukepalmer.wordpress.com\/2010\/02\/05\/associative-alpha-blending\/@
 --
 -- In the semantcs the values @zero@ and @one@ are used, which are defined as:
 --
