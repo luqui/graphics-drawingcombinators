@@ -144,7 +144,7 @@ render d = GL.preservingAttrib [GL.AllServerAttributes] $ do
     GL.lineWidth GL.$= 1.5
     GL.hint GL.LineSmooth GL.$= GL.DontCare
 
-    dRender d identity mempty
+    dRender d identity white
 
 -- |Like 'render', but clears the screen first. This is so
 -- you can use this module and pretend that OpenGL doesn't
@@ -195,7 +195,7 @@ inSet x s = Any (x `Set.member` s)
 
 picker :: Renderer -> Picker Any
 picker r tr z = z `seq` do
-    GL.withName (GL.Name z) (r tr mempty)
+    GL.withName (GL.Name z) (r tr white)
     return (z+1, inSet z)
 
 rendererImage :: Renderer -> Image Any
@@ -292,6 +292,8 @@ instance Monoid Color where
         γ = a + a' - a * a'
         i | γ == 0    = \_ _ -> 0  -- imples a = a' = 0
           | otherwise = \x y -> (a*x + (1-a)*a'*y)/γ
+
+white = Color 1 1 1 1
 
 -- | Modulate two colors by each other.
 --
