@@ -264,7 +264,7 @@ infixr 1 %%
 (%%) :: Affine -> Image a -> Image a
 tr' %% d = Image render' pick
     where
-    render' tr col = dRender d (tr `compose` tr') col
+    render' tr col = (dRender d $! tr `compose` tr') col
     pick tr z = dPick d (tr `compose` tr') z
 
 
@@ -391,6 +391,7 @@ openFont :: String -> IO Font
 openFont path = do
     font <- FTGL.createPolygonFont path
     addFinalizer font (FTGL.destroyFont font)
+    _ <- FTGL.setFontFaceSize font 72 72 
     return $ Font font
 
 -- | The image representing some text rendered with a font.  The baseline
@@ -401,14 +402,11 @@ text font str = rendererImage $ \tr _ -> do
     GL.preservingMatrix $ do
         multGLmatrix tr
         GL.scale (1/36 :: GL.GLdouble) (1/36) 1
-        _ <- FTGL.setFontFaceSize (getFont font) 72 72 
         FTGL.renderFont (getFont font) str FTGL.All
         return ()
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
-textWidth font str = (/36) . realToFrac . unsafePerformIO $ do
-    _ <- FTGL.setFontFaceSize (getFont font) 72 72 
-    FTGL.getFontAdvance (getFont font) str
+textWidth font str = (/36) . realToFrac . unsafePerformIO $ FTGL.getFontAdvance (getFont font) str
 
 #endif
