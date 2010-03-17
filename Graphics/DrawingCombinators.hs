@@ -262,9 +262,9 @@ infixr 1 %%
 --
 -- > [[tr % im]] = [[im]] . inverse [[tr]]
 (%%) :: Affine -> Image a -> Image a
-tr' %% d = Image render' pick
+tr' %% d = tr' `seq` Image render' pick
     where
-    render' tr col = (dRender d $! tr `compose` tr') col
+    render' tr col = dRender d (tr `compose` tr') col
     pick tr z = dPick d (tr `compose` tr') z
 
 
