@@ -43,8 +43,9 @@ main = do
             return font
         _ -> error "Usage: drawingcombinators-example some_font.ttf"
         
-        
-    Draw.clearRender (quadrants (circleText font "Hello, World!"))
+    
+    let image = quadrants (circleText font "Hello, World!")
+    Draw.clearRender image
     SDL.glSwapBuffers
     waitClose
     SDL.quit

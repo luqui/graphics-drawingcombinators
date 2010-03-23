@@ -49,6 +49,12 @@
 -- >   test (Any True)  (Any True)  = "Hit Both??!"
 --
 -- The last case would only be possible if the circles were overlapping.
+--
+-- Note, the area-less shapes such as 'point', 'line', and 'bezierCurve' 
+-- /always/ return @Any False@ when sampled, even if the exact same 
+-- coordinates are given.  This is because miniscule floating-point error 
+-- can make these shapes very brittle under transformations.  If you need 
+-- a point to be clickable, make it, for example, a very small box.
 --------------------------------------------------------------
 
 module Graphics.DrawingCombinators
@@ -72,12 +78,9 @@ where
 
 import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
-import Data.Maybe(fromMaybe)
-import Control.Monad (forM_, unless)
+import Control.Monad (unless)
 import Data.Monoid (Monoid(..), Any(..))
-import qualified Data.Set as Set
 import qualified Graphics.Rendering.OpenGL.GL as GL
-import qualified Graphics.Rendering.OpenGL.GLU as GLU
 import qualified Codec.Image.STB as Image
 import qualified Data.Bitmap.OpenGL as Bitmap
 import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
@@ -90,7 +93,7 @@ import System.Mem.Weak (addFinalizer)
 #endif
 
 type Renderer = Affine -> Color -> IO ()
-type Picker a = Affine -> GL.GLuint -> IO (GL.GLuint, Set.Set GL.GLuint -> a)
+type Picker a = R2 -> a
 
 -- | The type of images.
 --
@@ -106,22 +109,19 @@ data Image a = Image { dRender :: Renderer
 instance Functor Image where
     fmap f d = Image { 
         dRender = dRender d,
-        dPick = (fmap.fmap.fmap.fmap.fmap) f (dPick d)
+        dPick = fmap f (dPick d)
       }
 
 instance Applicative Image where
     pure x = Image { 
         dRender = (pure.pure.pure) (),
-        dPick = \_ z -> pure (z, const x)
+        dPick = const x
       }
     
     df <*> dx = Image {
         -- reversed so that things that come first go on top
         dRender = (liftA2.liftA2) (*>) (dRender dx) (dRender df),
-        dPick = \tr z -> do
-            (z', m') <- dPick dx tr z
-            (z'', m) <- dPick df tr z'
-            return (z'', m <*> m')
+        dPick = dPick df <*> dPick dx
       }
 
 instance (Monoid m) => Monoid (Image m) where
@@ -154,31 +154,11 @@ clearRender d = do
     GL.clear [GL.ColorBuffer]
     render d
 
--- | Given a bounding box, lower left and upper right in the default coordinate
--- system (-1,-1) to (1,1), return the topmost drawing's value (with respect to
--- @`over`@) intersecting that bounding box.
-selectRegion :: R2 -> R2 -> Image a -> IO a
-selectRegion ll ur drawing = do
-    (lookup', recs) <- GL.getHitRecords 64 $ -- XXX hard coded crap
-        GL.preservingMatrix $ do
-            GL.loadIdentity
-            GLU.ortho2D (fst ll) (fst ur) (snd ll) (snd ur)
-            (_, lookup') <- dPick drawing identity 0
-            return lookup'
-    let nameList = concatMap (\(GL.HitRecord _ _ ns) -> ns) (fromMaybe [] recs)
-    let nameSet  = Set.fromList $ map (\(GL.Name n) -> n) nameList
-    return $ lookup' nameSet
-
 -- | Sample the value of the image at a point.  
 --
 -- > [[sample i p]] = snd ([[i]] p)
---
--- Even though this ought to be a pure function, it is /not/ safe to
--- @unsafePerformIO@ it, because it uses OpenGL state.
-sample :: Image a -> R2 -> IO a
-sample im (px,py) = selectRegion (px-e,py-e) (px+e,py+e) im
-    where
-    e = 1/1024
+sample :: Image a -> R2 -> a
+sample = dPick 
 
 {----------------
   Geometry
@@ -190,67 +170,60 @@ toVertex tr p = let (x,y) = tr `apply` p in GL.Vertex2 x y
 toVertex3 :: R -> Affine -> R2 -> GL.Vertex3 GL.GLdouble
 toVertex3 z tr p = let (x,y) = tr `apply` p in GL.Vertex3 x y z
 
-inSet :: (Ord a) => a -> Set.Set a -> Any
-inSet x s = Any (x `Set.member` s)
-
-picker :: Renderer -> Picker Any
-picker r tr z = z `seq` do
-    GL.withName (GL.Name z) (r tr white)
-    return (z+1, inSet z)
-
-rendererImage :: Renderer -> Image Any
-rendererImage f = Image f (picker f)
-
 -- | A single \"pixel\" at the specified point.
 --
 -- > [[point p]] r | [[r]] == [[p]] = (one, Any True) 
 -- >               | otherwise      = (zero, Any False)
 point :: R2 -> Image Any
-point p = rendererImage $ \tr _ -> do
-    GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
+point p = Image render' (const (Any False))
+    where
+    render' tr _ = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
 
 -- | A line connecting the two given points.
 line :: R2 -> R2 -> Image Any
-line src dest = rendererImage $ \tr _ -> do
-    GL.renderPrimitive GL.Lines $ do
+line src dest = Image render' (const (Any False))
+    where
+    render' tr _ = GL.renderPrimitive GL.Lines $ do
         GL.vertex $ toVertex tr src
         GL.vertex $ toVertex tr dest
         
 
 -- | A regular polygon centered at the origin with n sides.
-regularPoly :: Integral a => a -> Image Any
-regularPoly n = rendererImage $ \tr _ -> do
-    let scaler = 2 * pi / fromIntegral n
-    GL.renderPrimitive GL.TriangleFan $ do
-        GL.vertex $ toVertex tr (0,0)
-        forM_ [0..n] $ \s -> do
-            let theta = scaler * fromIntegral s
-            GL.vertex $ toVertex tr (cos theta, sin theta)
+regularPoly :: Int -> Image Any
+regularPoly n = convexPoly [ (cos theta, sin theta) | i <- [0..n-1], let theta = fromIntegral i * (2 * pi / fromIntegral n) ]
 
 -- | An (imperfect) unit circle centered at the origin.  Implemented as:
 --
 -- > circle = regularPoly 24
 circle :: Image Any
-circle = regularPoly (24 :: Int)
+circle = regularPoly 24
 
 -- | A convex polygon given by the list of points.
 convexPoly :: [R2] -> Image Any
-convexPoly points = rendererImage $ \tr _ -> do
-    GL.renderPrimitive GL.Polygon $ 
-        mapM_ (GL.vertex . toVertex tr) points
+convexPoly points@(_:_:_:_) = Image render' pick
+    where
+    render' tr _ = GL.renderPrimitive GL.Polygon $ mapM_ (GL.vertex . toVertex tr) points
+    pick p = Any $ all (sign . side p) edges
+        where
+        edges = zipWith (,) points (tail points)
+        side (x,y) ((x1,y1), (x2,y2)) = (y-y1)*(x2-x1) - (x-x1)*(y2-y1)
+        sign | side p (last points, head points) >= 0 = (>= 0)
+             | otherwise                              = (<= 0)
+convexPoly _ = error "convexPoly must be given at least three points"
 
 -- | A Bezier curve given a list of control points.  It is a curve
 -- that begins at the first point in the list, ends at the last one,
 -- and smoothly interpolates between the rest.  It is the empty
 -- image ('mempty') if zero or one points are given.
 bezierCurve :: [R2] -> Image Any
-bezierCurve controlPoints = rendererImage $ \tr _ -> do
-    -- todo check at least 4 points?
-    let ps = map (toVertex3 0 tr) controlPoints
-    m <- GL.newMap1 (0,1) ps :: IO (GL.GLmap1 (GL.Vertex3) R)
-    GL.map1 GL.$= Just m
-    GL.mapGrid1 GL.$= (100, (0::R, 1))
-    GL.evalMesh1 GL.Line (1,100) 
+bezierCurve controlPoints = Image render' (const (Any False))
+    where
+    render' tr _ = do
+        let ps = map (toVertex3 0 tr) controlPoints
+        m <- GL.newMap1 (0,1) ps :: IO (GL.GLmap1 (GL.Vertex3) R)
+        GL.map1 GL.$= Just m
+        GL.mapGrid1 GL.$= (100, (0::R, 1))
+        GL.evalMesh1 GL.Line (1,100) 
 
 {-----------------
   Transformations
@@ -265,7 +238,7 @@ infixr 1 %%
 tr' %% d = tr' `seq` Image render' pick
     where
     render' tr col = dRender d (tr `compose` tr') col
-    pick tr z = dPick d (tr `compose` tr') z
+    pick = dPick d . apply (inverse tr')
 
 
 {------------
@@ -293,6 +266,7 @@ instance Monoid Color where
         i | γ == 0    = \_ _ -> 0  -- imples a = a' = 0
           | otherwise = \x y -> (a*x + (1-a)*a'*y)/γ
 
+white :: Color
 white = Color 1 1 1 1
 
 -- | Modulate two colors by each other.
@@ -342,20 +316,23 @@ openSprite path = do
 -- > [[sprite s]] p | p `elem` [-1,1]^2 = ([[s]] p, Any True) 
 -- >                | otherwise         = (zero, Any False)
 sprite :: Sprite -> Image Any
-sprite spr = rendererImage $ \tr _ -> do
-    oldtex <- GL.get (GL.textureBinding GL.Texture2D)
-    GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
-    GL.renderPrimitive GL.Quads $ do
-        texcoord 0 0
-        GL.vertex   $ toVertex tr (-1, 1)
-        texcoord 1 0
-        GL.vertex   $ toVertex tr (1, 1)
-        texcoord 1 1
-        GL.vertex   $ toVertex tr (1,-1)
-        texcoord 0 1
-        GL.vertex   $ toVertex tr (-1,-1)
-    GL.textureBinding GL.Texture2D GL.$= oldtex
+sprite spr = Image render' pick
     where
+    render' tr _ = do
+        oldtex <- GL.get (GL.textureBinding GL.Texture2D)
+        GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
+        GL.renderPrimitive GL.Quads $ do
+            texcoord 0 0
+            GL.vertex   $ toVertex tr (-1, 1)
+            texcoord 1 0
+            GL.vertex   $ toVertex tr (1, 1)
+            texcoord 1 1
+            GL.vertex   $ toVertex tr (1,-1)
+            texcoord 0 1
+            GL.vertex   $ toVertex tr (-1,-1)
+        GL.textureBinding GL.Texture2D GL.$= oldtex
+    pick (x,y) | -1 <= x && x <= 1 && -1 <= y && y <= 1 = Any True
+               | otherwise                              = Any False
     texcoord x y = GL.texCoord $ GL.TexCoord2 (x :: GL.GLdouble) (y :: GL.GLdouble)
 
 {---------
@@ -373,11 +350,14 @@ openFont _ = do
     return Font
 
 text :: Font -> String -> Image Any
-text Font str = rendererImage $ \tr _ -> do
-    GL.preservingMatrix $ do
+text Font str = Image render' pick
+    where
+    render' tr _ = GL.preservingMatrix $ do
         multGLmatrix tr
         GL.scale (1/64 :: GL.GLdouble) (1/64) 1
         GLUT.renderString GLUT.Roman str
+    pick (x,y) | 0 <= x && x <= textWidth Font str && 0 <= y && y <= 1 = Any True
+               | otherwise                                             = Any False
 
 textWidth :: Font -> String -> R
 textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GLUT.Roman str))
@@ -398,12 +378,15 @@ openFont path = do
 -- is at y=0, the text starts at x=0, and the height of a lowercase x is 
 -- 1 unit.
 text :: Font -> String -> Image Any
-text font str = rendererImage $ \tr _ -> do
-    GL.preservingMatrix $ do
+text font str = Image render' pick
+    where 
+    render' tr _ = GL.preservingMatrix $ do
         multGLmatrix tr
         GL.scale (1/36 :: GL.GLdouble) (1/36) 1
         FTGL.renderFont (getFont font) str FTGL.All
         return ()
+    pick (x,y) | 0 <= x && x <= textWidth font str && 0 <= y && y <= 1 = Any True
+               | otherwise                                             = Any False
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
