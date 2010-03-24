@@ -56,8 +56,8 @@ identity = M 1 0 0
 -- undefined.
 inverse :: Affine -> Affine
 inverse (M x11 x12 x13 x21 x22 x23) = 
-    M (s*x22)   (-s*x12)  (s*x22 *x13 - s*x12*x23)
-      (-s*x21)  (s*x11)   (-s*x21*x13 + s*x11*x23)
+    M (s*x22)   (-s*x12)  (-s*x22*x13 + s*x12*x23)
+      (-s*x21)  (s*x11)   ( s*x21*x13 - s*x11*x23)
     where
     s = 1 / (x11*x22 - x12*x21)
 
