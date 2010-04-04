@@ -72,6 +72,8 @@ module Graphics.DrawingCombinators
     , Sprite, openSprite, sprite
     -- * Text
     , Font, openFont, text, textWidth
+    -- * Extensions
+    , unsafeOpenGLImage
     , Monoid(..), Any(..)
     )
 where
@@ -375,7 +377,7 @@ openFont path = do
     return $ Font font
 
 -- | The image representing some text rendered with a font.  The baseline
--- is at y=0, the text starts at x=0, and the height of a lowercase x is 
+-- is at y=0, the text starts at x=0, and the height of a lowercase x is  
 -- 1 unit.
 text :: Font -> String -> Image Any
 text font str = Image render' pick
@@ -393,3 +395,14 @@ textWidth :: Font -> String -> R
 textWidth font str = (/36) . realToFrac . unsafePerformIO $ FTGL.getFontAdvance (getFont font) str
 
 #endif
+
+-- | Import an OpenGL action and pure sampler function into an Image.
+-- This ought to be a well-behaved, compositional action (make sure
+-- it responds to different initial ModelViews, don't change matrix
+-- modes or render or anything like that).  The color given to the
+-- action is the current tint color; modulate all your colors by this 
+-- before setting them.
+unsafeOpenGLImage :: (Color -> IO ()) -> (R2 -> a) -> Image a
+unsafeOpenGLImage draw pick = Image render' pick
+    where
+    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] $ multGLmatrix tr >> draw col
