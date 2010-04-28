@@ -405,4 +405,4 @@ textWidth font str = (/36) . realToFrac . unsafePerformIO $ FTGL.getFontAdvance 
 unsafeOpenGLImage :: (Color -> IO ()) -> (R2 -> a) -> Image a
 unsafeOpenGLImage draw pick = Image render' pick
     where
-    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] $ multGLmatrix tr >> draw col
+    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] . GL.preservingMatrix $ multGLmatrix tr >> draw col
