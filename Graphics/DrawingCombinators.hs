@@ -80,7 +80,6 @@ where
 
 import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
-import Control.Monad (unless)
 import Data.Monoid (Monoid(..), Any(..))
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Codec.Image.STB as Image
