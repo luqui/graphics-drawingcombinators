@@ -81,9 +81,9 @@ where
 import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
 import Data.Monoid (Monoid(..), Any(..))
+import qualified Graphics.DrawingCombinators.Bitmap as Bitmap
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Codec.Image.STB as Image
-import qualified Data.Bitmap.OpenGL as Bitmap
 import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
 
 #ifdef LAME_FONTS
