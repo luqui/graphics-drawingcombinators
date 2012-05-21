@@ -88,6 +88,7 @@ import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
 
 #ifdef LAME_FONTS
 import qualified Graphics.UI.GLUT as GLUT
+import Control.Monad (unless)
 #else
 import qualified Graphics.Rendering.FTGL as FTGL
 import System.Mem.Weak (addFinalizer)
