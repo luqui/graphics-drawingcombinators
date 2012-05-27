@@ -21,7 +21,7 @@ import Data.Monoid
 type R = GL.GLdouble
 type R2 = (R,R)
 
--- | An Affine transformation from R2 to R2.  
+-- | An Affine transformation from R2 to R2.
 --
 -- > [[Affine]] = R2 -> R2
 --
@@ -42,7 +42,7 @@ M x11 x12 x13 x21 x22 x23 `compose` M y11 y12 y13 y21 y22 y23 =
 
 -- | > [[apply a]] = [[a]]
 apply :: Affine -> R2 -> R2
-apply (M x11 x12 x13 x21 x22 x23) (y1,y2) = 
+apply (M x11 x12 x13 x21 x22 x23) (y1,y2) =
     (x11*y1+x12*y2+x13, x21*y1+x22*y2+x23)
 
 -- | > [[identity]] = id
@@ -55,7 +55,7 @@ identity = M 1 0 0
 -- If the transformation is not invertible, this operation is
 -- undefined.
 inverse :: Affine -> Affine
-inverse (M x11 x12 x13 x21 x22 x23) = 
+inverse (M x11 x12 x13 x21 x22 x23) =
     M (s*x22)   (-s*x12)  (-s*x22*x13 + s*x12*x23)
       (-s*x21)  (s*x11)   ( s*x21*x13 - s*x11*x23)
     where
