@@ -1,7 +1,9 @@
-import qualified Graphics.DrawingCombinators as Draw
-import Graphics.DrawingCombinators ((%%))
-import qualified Graphics.UI.SDL as SDL
+import Control.Monad
+import Data.IORef
 import Data.Monoid
+import Graphics.DrawingCombinators ((%%))
+import qualified Graphics.DrawingCombinators as Draw
+import qualified Graphics.UI.GLFW as GLFW
 
 import System.Environment(getArgs)
 
@@ -11,21 +13,24 @@ resY = 480
 
 initScreen :: IO ()
 initScreen = do
-    SDL.init [SDL.InitTimer, SDL.InitVideo]
-    -- resolution & color depth
-    SDL.setVideoMode resX resY 32 [SDL.OpenGL]
-    return ()
+  True <- GLFW.initialize
+  True <- GLFW.openWindow GLFW.defaultDisplayOptions {
+    GLFW.displayOptions_width = resX,
+    GLFW.displayOptions_height = resY
+    }
+
+  return ()
 
 unitText :: Draw.Font -> String -> Draw.Image Any
 unitText font str = (Draw.translate (-1,0) %% Draw.scale (2/w) (2/w) %% Draw.text font str)
-                        `mappend` 
+                        `mappend`
                     Draw.tint (Draw.Color 1 0 0 1) (Draw.line (-1,0) (1,0))
     where
     w = Draw.textWidth font str
 
 quadrants :: (Monoid a) => Draw.Image a -> Draw.Image a
-quadrants img = mconcat [ 
-    (Draw.translate (-0.5,0.5) %%), 
+quadrants img = mconcat [
+    (Draw.translate (-0.5,0.5) %%),
     (Draw.translate (0.5,0.5)   `Draw.compose` Draw.rotate (-pi/2) %%),
     (Draw.translate (0.5,-0.5)  `Draw.compose` Draw.rotate pi %%),
     (Draw.translate (-0.5,-0.5) `Draw.compose` Draw.rotate (pi/2) %%)] (Draw.scale 0.5 0.5 %% img)
@@ -42,18 +47,21 @@ main = do
             font <- Draw.openFont fontName
             return font
         _ -> error "Usage: drawingcombinators-example some_font.ttf"
-        
-    
-    let image = quadrants (circleText font "Hello, World!")
-    Draw.clearRender image
-    SDL.glSwapBuffers
-    waitClose
-    SDL.quit
+
+
+    doneRef <- newIORef False
+    GLFW.setWindowCloseCallback $ do
+      writeIORef doneRef True
+      return True
+    waitClose doneRef $ quadrants (circleText font "Hello, World!")
+    GLFW.terminate
     return ()
     where
 
-    waitClose = do
-        ev <- SDL.waitEvent
-        case ev of
-             SDL.Quit -> return ()
-             _ -> waitClose
+    waitClose doneRef image = do
+      isDone <- readIORef doneRef
+      unless isDone $ do
+        Draw.clearRender image
+        GLFW.swapBuffers
+        GLFW.pollEvents
+        waitClose doneRef $ Draw.rotate (-0.01) %% image
