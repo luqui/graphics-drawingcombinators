@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 
 --------------------------------------------------------------
--- | 
+-- |
 -- Module      : Graphics.DrawingCombinators
 -- Copyright   : (c) Luke Palmer 2008-2010
 -- License     : BSD3
@@ -29,7 +29,7 @@
 -- can ignore the following and just use 'mappend' and 'mconcat' to overlay images.
 --
 -- Wrangling the @a@\'s -- the associated data with each \"pixel\" -- is done
--- using the 'Functor', 'Applicative', and 'Monoid' instances.  
+-- using the 'Functor', 'Applicative', and 'Monoid' instances.
 --
 -- The primitive @Image@s such as 'circle' and 'text' all return @Image Any@
 -- objects.  'Any' is just a wrapper around 'Bool', with @(||)@ as its monoid
@@ -42,7 +42,7 @@
 --
 -- > twoCircles :: Image String
 -- > twoCircles = liftA2 test (translate (-1,0) %% circle) (translate (1,0) %% circle)
--- >   where 
+-- >   where
 -- >   test (Any False) (Any False) = "Miss!"
 -- >   test (Any False) (Any True)  = "Hit Right!"
 -- >   test (Any True)  (Any False) = "Hit Left!"
@@ -50,10 +50,10 @@
 --
 -- The last case would only be possible if the circles were overlapping.
 --
--- Note, the area-less shapes such as 'point', 'line', and 'bezierCurve' 
--- /always/ return @Any False@ when sampled, even if the exact same 
--- coordinates are given.  This is because miniscule floating-point error 
--- can make these shapes very brittle under transformations.  If you need 
+-- Note, the area-less shapes such as 'point', 'line', and 'bezierCurve'
+-- /always/ return @Any False@ when sampled, even if the exact same
+-- coordinates are given.  This is because miniscule floating-point error
+-- can make these shapes very brittle under transformations.  If you need
 -- a point to be clickable, make it, for example, a very small box.
 --------------------------------------------------------------
 
@@ -88,6 +88,7 @@ import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
 
 #ifdef LAME_FONTS
 import qualified Graphics.UI.GLUT as GLUT
+import Control.Monad (unless)
 #else
 import qualified Graphics.Rendering.FTGL as FTGL
 import System.Mem.Weak (addFinalizer)
@@ -108,17 +109,17 @@ data Image a = Image { dRender :: Renderer
                      }
 
 instance Functor Image where
-    fmap f d = Image { 
+    fmap f d = Image {
         dRender = dRender d,
         dPick = fmap f (dPick d)
       }
 
 instance Applicative Image where
-    pure x = Image { 
+    pure x = Image {
         dRender = (pure.pure.pure) (),
         dPick = const x
       }
-    
+
     df <*> dx = Image {
         -- reversed so that things that come first go on top
         dRender = (liftA2.liftA2) (*>) (dRender dx) (dRender df),
@@ -155,11 +156,11 @@ clearRender d = do
     GL.clear [GL.ColorBuffer]
     render d
 
--- | Sample the value of the image at a point.  
+-- | Sample the value of the image at a point.
 --
 -- > [[sample i p]] = snd ([[i]] p)
 sample :: Image a -> R2 -> a
-sample = dPick 
+sample = dPick
 
 {----------------
   Geometry
@@ -173,7 +174,7 @@ toVertex3 z tr p = let (x,y) = tr `apply` p in GL.Vertex3 x y z
 
 -- | A single \"pixel\" at the specified point.
 --
--- > [[point p]] r | [[r]] == [[p]] = (one, Any True) 
+-- > [[point p]] r | [[r]] == [[p]] = (one, Any True)
 -- >               | otherwise      = (zero, Any False)
 point :: R2 -> Image Any
 point p = Image render' (const (Any False))
@@ -187,7 +188,7 @@ line src dest = Image render' (const (Any False))
     render' tr _ = GL.renderPrimitive GL.Lines $ do
         GL.vertex $ toVertex tr src
         GL.vertex $ toVertex tr dest
-        
+
 
 -- | A regular polygon centered at the origin with n sides.
 regularPoly :: Int -> Image Any
@@ -224,7 +225,7 @@ bezierCurve controlPoints = Image render' (const (Any False))
         m <- GL.newMap1 (0,1) ps :: IO (GL.GLmap1 (GL.Vertex3) R)
         GL.map1 GL.$= Just m
         GL.mapGrid1 GL.$= (100, (0::R, 1))
-        GL.evalMesh1 GL.Line (1,100) 
+        GL.evalMesh1 GL.Line (1,100)
 
 {-----------------
   Transformations
@@ -272,12 +273,12 @@ white = Color 1 1 1 1
 
 -- | Modulate two colors by each other.
 --
--- > modulate (Color r g b a) (Color r' g' b' a') 
+-- > modulate (Color r g b a) (Color r' g' b' a')
 -- >           = Color (r*r') (g*g') (b*b') (a*a')
 modulate :: Color -> Color -> Color
 modulate (Color r g b a) (Color r' g' b' a') = Color (r*r') (g*g') (b*b') (a*a')
 
--- | Tint an image by a color; i.e. modulate the colors of an image by 
+-- | Tint an image by a color; i.e. modulate the colors of an image by
 -- a color.
 --
 -- > [[tint c im]] = first (modulate c) . [[im]]
@@ -314,7 +315,7 @@ openSprite path = do
 
 -- | The image of a sprite at the origin.
 --
--- > [[sprite s]] p | p `elem` [-1,1]^2 = ([[s]] p, Any True) 
+-- > [[sprite s]] p | p `elem` [-1,1]^2 = ([[s]] p, Any True)
 -- >                | otherwise         = (zero, Any False)
 sprite :: Sprite -> Image Any
 sprite spr = Image render' pick
@@ -340,6 +341,17 @@ sprite spr = Image render' pick
  Text
 ---------}
 
+-- | The image representing some text rendered with a font.  The baseline
+-- is at y=0, the text starts at x=0, and the height of a lowercase x is
+-- 1 unit.
+text :: Font -> String -> Image Any
+text font str = Image render' pick
+    where
+    render' tr _ = withMultGLmatrix tr $ renderText font str
+    pick (x,y)
+      | 0 <= x && x <= textWidth font str && 0 <= y && y <= 1 = Any True
+      | otherwise                                             = Any False
+
 #ifdef LAME_FONTS
 
 data Font = Font
@@ -350,15 +362,10 @@ openFont _ = do
     unless inited $ GLUT.initialize "" [] >> return ()
     return Font
 
-text :: Font -> String -> Image Any
-text Font str = Image render' pick
-    where
-    render' tr _ = GL.preservingMatrix $ do
-        multGLmatrix tr
-        GL.scale (1/64 :: GL.GLdouble) (1/64) 1
-        GLUT.renderString GLUT.Roman str
-    pick (x,y) | 0 <= x && x <= textWidth Font str && 0 <= y && y <= 1 = Any True
-               | otherwise                                             = Any False
+renderText :: Font -> String -> IO ()
+renderText Font str = do
+    GL.scale (1/64 :: GL.GLdouble) (1/64) 1
+    GLUT.renderString GLUT.Roman str
 
 textWidth :: Font -> String -> R
 textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GLUT.Roman str))
@@ -367,31 +374,24 @@ textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GL
 
 data Font = Font { getFont :: FTGL.Font }
 
+renderText :: Font -> String -> IO ()
+renderText font str = do
+    GL.scale (1/36 :: GL.GLdouble) (1/36) 1
+    FTGL.renderFont (getFont font) str FTGL.All
+
 -- | Load a TTF font from a file.
 openFont :: String -> IO Font
 openFont path = do
     font <- FTGL.createPolygonFont path
     addFinalizer font (FTGL.destroyFont font)
-    _ <- FTGL.setFontFaceSize font 72 72 
+    _ <- FTGL.setFontFaceSize font 72 72
     return $ Font font
-
--- | The image representing some text rendered with a font.  The baseline
--- is at y=0, the text starts at x=0, and the height of a lowercase x is  
--- 1 unit.
-text :: Font -> String -> Image Any
-text font str = Image render' pick
-    where 
-    render' tr _ = GL.preservingMatrix $ do
-        multGLmatrix tr
-        GL.scale (1/36 :: GL.GLdouble) (1/36) 1
-        FTGL.renderFont (getFont font) str FTGL.All
-        return ()
-    pick (x,y) | 0 <= x && x <= textWidth font str && 0 <= y && y <= 1 = Any True
-               | otherwise                                             = Any False
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
-textWidth font str = (/36) . realToFrac . unsafePerformIO $ FTGL.getFontAdvance (getFont font) str
+textWidth font str =
+  (/36) . realToFrac . unsafePerformIO $
+  FTGL.getFontAdvance (getFont font) str
 
 #endif
 
@@ -399,9 +399,9 @@ textWidth font str = (/36) . realToFrac . unsafePerformIO $ FTGL.getFontAdvance 
 -- This ought to be a well-behaved, compositional action (make sure
 -- it responds to different initial ModelViews, don't change matrix
 -- modes or render or anything like that).  The color given to the
--- action is the current tint color; modulate all your colors by this 
+-- action is the current tint color; modulate all your colors by this
 -- before setting them.
 unsafeOpenGLImage :: (Color -> IO ()) -> (R2 -> a) -> Image a
 unsafeOpenGLImage draw pick = Image render' pick
     where
-    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] . GL.preservingMatrix $ multGLmatrix tr >> draw col
+    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] . withMultGLmatrix tr $ draw col
