@@ -11,7 +11,7 @@ roughly translate, rotate, scale, and compositions thereof.
 module Graphics.DrawingCombinators.Affine
     ( R, R2, Affine
     , compose, apply, identity, translate, rotate, scale, inverse
-    , multGLmatrix
+    , multGLmatrix, withMultGLmatrix
     )
 where
 
@@ -88,3 +88,6 @@ multGLmatrix (M x11 x12 x13 x21 x22 x23) = do
                                      , 0   , 0   , 1 , 0
                                      , x13 , x23 , 0 , 1 ]
     GL.multMatrix (m :: GL.GLmatrix R)
+
+withMultGLmatrix :: Affine -> IO a -> IO a
+withMultGLmatrix m f = GL.preservingMatrix $ multGLmatrix m >> f

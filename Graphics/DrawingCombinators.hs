@@ -354,8 +354,7 @@ openFont _ = do
 text :: Font -> String -> Image Any
 text Font str = Image render' pick
     where
-    render' tr _ = GL.preservingMatrix $ do
-        multGLmatrix tr
+    render' tr _ = withMultGLmatrix tr $ do
         GL.scale (1/64 :: GL.GLdouble) (1/64) 1
         GLUT.renderString GLUT.Roman str
     pick (x,y) | 0 <= x && x <= textWidth Font str && 0 <= y && y <= 1 = Any True
@@ -382,8 +381,7 @@ openFont path = do
 text :: Font -> String -> Image Any
 text font str = Image render' pick
     where 
-    render' tr _ = GL.preservingMatrix $ do
-        multGLmatrix tr
+    render' tr _ = withMultGLmatrix tr $ do
         GL.scale (1/36 :: GL.GLdouble) (1/36) 1
         FTGL.renderFont (getFont font) str FTGL.All
         return ()
@@ -405,4 +403,4 @@ textWidth font str = (/36) . realToFrac . unsafePerformIO $ FTGL.getFontAdvance 
 unsafeOpenGLImage :: (Color -> IO ()) -> (R2 -> a) -> Image a
 unsafeOpenGLImage draw pick = Image render' pick
     where
-    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] . GL.preservingMatrix $ multGLmatrix tr >> draw col
+    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] . withMultGLmatrix tr $ draw col
