@@ -341,6 +341,17 @@ sprite spr = Image render' pick
  Text
 ---------}
 
+-- | The image representing some text rendered with a font.  The baseline
+-- is at y=0, the text starts at x=0, and the height of a lowercase x is
+-- 1 unit.
+text :: Font -> String -> Image Any
+text font str = Image render' pick
+    where
+    render' tr _ = withMultGLmatrix tr $ renderText font str
+    pick (x,y)
+      | 0 <= x && x <= textWidth font str && 0 <= y && y <= 1 = Any True
+      | otherwise                                             = Any False
+
 #ifdef LAME_FONTS
 
 data Font = Font
@@ -351,14 +362,10 @@ openFont _ = do
     unless inited $ GLUT.initialize "" [] >> return ()
     return Font
 
-text :: Font -> String -> Image Any
-text Font str = Image render' pick
-    where
-    render' tr _ = withMultGLmatrix tr $ do
-        GL.scale (1/64 :: GL.GLdouble) (1/64) 1
-        GLUT.renderString GLUT.Roman str
-    pick (x,y) | 0 <= x && x <= textWidth Font str && 0 <= y && y <= 1 = Any True
-               | otherwise                                             = Any False
+renderText :: Font -> String -> IO ()
+renderText Font str = do
+    GL.scale (1/64 :: GL.GLdouble) (1/64) 1
+    GLUT.renderString GLUT.Roman str
 
 textWidth :: Font -> String -> R
 textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GLUT.Roman str))
@@ -367,30 +374,24 @@ textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GL
 
 data Font = Font { getFont :: FTGL.Font }
 
+renderText :: Font -> String -> IO ()
+renderText font str = do
+    GL.scale (1/36 :: GL.GLdouble) (1/36) 1
+    FTGL.renderFont (getFont font) str FTGL.All
+
 -- | Load a TTF font from a file.
 openFont :: String -> IO Font
 openFont path = do
     font <- FTGL.createPolygonFont path
     addFinalizer font (FTGL.destroyFont font)
-    _ <- FTGL.setFontFaceSize font 72 72 
+    _ <- FTGL.setFontFaceSize font 72 72
     return $ Font font
-
--- | The image representing some text rendered with a font.  The baseline
--- is at y=0, the text starts at x=0, and the height of a lowercase x is  
--- 1 unit.
-text :: Font -> String -> Image Any
-text font str = Image render' pick
-    where 
-    render' tr _ = withMultGLmatrix tr $ do
-        GL.scale (1/36 :: GL.GLdouble) (1/36) 1
-        FTGL.renderFont (getFont font) str FTGL.All
-        return ()
-    pick (x,y) | 0 <= x && x <= textWidth font str && 0 <= y && y <= 1 = Any True
-               | otherwise                                             = Any False
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
-textWidth font str = (/36) . realToFrac . unsafePerformIO $ FTGL.getFontAdvance (getFont font) str
+textWidth font str =
+  (/36) . realToFrac . unsafePerformIO $
+  FTGL.getFontAdvance (getFont font) str
 
 #endif
 
