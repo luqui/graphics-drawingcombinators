@@ -135,7 +135,6 @@ instance (Monoid m) => Monoid (Image m) where
 -- lower left and (1,1) in the upper right).
 render :: Image a -> IO ()
 render d = GL.preservingAttrib [GL.AllServerAttributes] $ do
-    GL.texture GL.Texture2D GL.$= GL.Enabled
     GL.blend GL.$= GL.Enabled
     GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
     -- For now we assume the user wants antialiasing; the general solution is not clear - maybe let the
@@ -179,13 +178,17 @@ toVertex3 z tr p = let (x,y) = tr `apply` p in GL.Vertex3 x y z
 point :: R2 -> Image Any
 point p = Image render' (const (Any False))
     where
-    render' tr _ = GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
+    render' tr _ = withoutTextures . GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
+
+withoutTextures :: IO a -> IO a
+withoutTextures action =
+    GL.texture GL.Texture2D GL.$= GL.Disabled >> action
 
 -- | A line connecting the two given points.
 line :: R2 -> R2 -> Image Any
 line src dest = Image render' (const (Any False))
     where
-    render' tr _ = GL.renderPrimitive GL.Lines $ do
+    render' tr _ = withoutTextures . GL.renderPrimitive GL.Lines $ do
         GL.vertex $ toVertex tr src
         GL.vertex $ toVertex tr dest
 
@@ -204,7 +207,8 @@ circle = regularPoly 24
 convexPoly :: [R2] -> Image Any
 convexPoly points@(_:_:_:_) = Image render' pick
     where
-    render' tr _ = GL.renderPrimitive GL.Polygon $ mapM_ (GL.vertex . toVertex tr) points
+    render' tr _ =
+        withoutTextures . GL.renderPrimitive GL.Polygon $ mapM_ (GL.vertex . toVertex tr) points
     pick p = Any $ all (sign . side p) edges
         where
         edges = zipWith (,) points (tail points)
@@ -321,6 +325,7 @@ sprite :: Sprite -> Image Any
 sprite spr = Image render' pick
     where
     render' tr _ = do
+        GL.texture GL.Texture2D GL.$= GL.Enabled
         oldtex <- GL.get (GL.textureBinding GL.Texture2D)
         GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
         GL.renderPrimitive GL.Quads $ do
@@ -382,7 +387,7 @@ renderText font str = do
 -- | Load a TTF font from a file.
 openFont :: String -> IO Font
 openFont path = do
-    font <- FTGL.createPolygonFont path
+    font <- FTGL.createTextureFont path
     addFinalizer font (FTGL.destroyFont font)
     _ <- FTGL.setFontFaceSize font 72 72
     return $ Font font
