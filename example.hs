@@ -1,8 +1,12 @@
-import Control.Monad
+import Prelude hiding (reverse, sequence)
+import Control.Monad hiding (sequence)
+import Control.Concurrent
 import Data.IORef
 import Data.Monoid
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Graphics.DrawingCombinators ((%%))
 import qualified Graphics.DrawingCombinators as Draw
+import Graphics.DrawingCombinators.Animation (runAnimation, animate, scale, rotate, translate, reverse, parallel, sequence)
 import qualified Graphics.UI.GLFW as GLFW
 
 import System.Environment(getArgs)
@@ -35,17 +39,22 @@ quadrants img = mconcat [
     (Draw.translate (0.5,-0.5)  `Draw.compose` Draw.rotate pi %%),
     (Draw.translate (-0.5,-0.5) `Draw.compose` Draw.rotate (pi/2) %%)] (Draw.scale 0.5 0.5 %% img)
 
-circleText :: Draw.Font -> String -> Draw.Image Any
-circleText font str = unitText font str `mappend` Draw.tint (Draw.Color 0 0 1 0.5) Draw.circle
+circleText :: Draw.Sprite -> Draw.Font -> String -> Draw.Image Any
+circleText sprite font str = mconcat
+  [ unitText font str
+  , Draw.scale 0.5 0.5 %% Draw.sprite sprite
+  , Draw.tint (Draw.Color 0 0 1 0.5) Draw.circle
+  ]
 
 main :: IO ()
 main = do
     initScreen
     args <- getArgs
-    font <- case args of
-        [fontName] -> do
+    (font, sprite) <- case args of
+        [fontName, spriteName] -> do
             font <- Draw.openFont fontName
-            return font
+            sprite <- Draw.openSprite spriteName
+            return (font, sprite)
         _ -> error "Usage: drawingcombinators-example some_font.ttf"
 
 
@@ -53,15 +62,25 @@ main = do
     GLFW.setWindowCloseCallback $ do
       writeIORef doneRef True
       return True
-    waitClose doneRef $ quadrants (circleText font "Hello, World!")
+
+    begin <- getPOSIXTime
+    waitClose begin 0 doneRef $ quadrants (circleText sprite font "Hello, World!")
     GLFW.terminate
     return ()
     where
 
-    waitClose doneRef image = do
+    animate' = sequence
+                [ animate (scale (1, 1)
+                       <> translate (1, 1)
+                       <> rotate 3.14)       10
+                , animate (translate (2, 2)) 5
+                ]
+
+    waitClose begin elapsed' doneRef image = do
       isDone <- readIORef doneRef
       unless isDone $ do
-        Draw.clearRender image
+        elapsed <- fmap (begin `subtract`) getPOSIXTime
+        Draw.clearRender (runAnimation elapsed animate' image)
         GLFW.swapBuffers
         GLFW.pollEvents
-        waitClose doneRef $ Draw.rotate (-0.01) %% image
+        waitClose begin elapsed doneRef image
