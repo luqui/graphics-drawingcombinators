@@ -32,7 +32,7 @@ scale (x, y) =
 
 -- animations
 
-type Action a = R             -- ^ Progress between [0, -1]
+type Action a = R             -- ^ Progress between [0, 1]
              -> Image a
              -> Image a
 
