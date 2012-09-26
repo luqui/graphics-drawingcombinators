@@ -39,11 +39,16 @@ quadrants img = mconcat [
     (Draw.translate (0.5,-0.5)  `Draw.compose` Draw.rotate pi %%),
     (Draw.translate (-0.5,-0.5) `Draw.compose` Draw.rotate (pi/2) %%)] (Draw.scale 0.5 0.5 %% img)
 
-circleText :: Draw.Font -> String -> Draw.Image Any
-circleText font str = unitText font str `mappend` Draw.tint (Draw.Color 0 0 1 0.5) Draw.circle
+circleText :: Draw.Sprite -> Draw.Font -> String -> Draw.Image Any
+circleText sprite font str = mconcat
+  [ unitText font str
+  , Draw.scale 0.5 0.5 %% Draw.sprite sprite
+  , Draw.tint (Draw.Color 0 0 1 0.5) Draw.circle
+  ]
 
 main :: IO ()
 main = do
+    initScreen
     args <- getArgs
     (font, sprite) <- case args of
         [fontName, spriteName] -> do
@@ -53,7 +58,6 @@ main = do
         _ -> error "Usage: drawingcombinators-example some_font.ttf"
 
 
-    initScreen
     doneRef <- newIORef False
     GLFW.setWindowCloseCallback $ do
       writeIORef doneRef True
