@@ -4,7 +4,7 @@ Description:
     have to go into the deep, dark world of imperative stateful
     programming just to draw stuff.  It supports 2D only (for now),
     with support drawing geometry, images, and text.
-Version: 1.4.3
+Version: 1.4.4
 Stability: experimental
 Synopsis: A functional interface to 2D drawing in OpenGL
 License: BSD3
@@ -27,7 +27,7 @@ Library
     Build-Depends: base == 4.*, containers, OpenGL >= 2.4 && < 2.7, stb-image == 0.2.*, bitmap >= 0.0.2
     Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
     Other-Modules: Graphics.DrawingCombinators.Bitmap
-    ghc-options : -Wall 
+    ghc-options : -Wall
     Ghc-Prof-Options:  -prof -auto-all
 
     if flag(ftgl)
