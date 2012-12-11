@@ -20,21 +20,13 @@ source-repository head
   type:     git
   location: http://github.com/luqui/graphics-drawingcombinators
 
-Flag ftgl
-    Description: Does the system have FTGL, thus we could use not sucky fonts
-
 Library
-    Build-Depends: base == 4.*, OpenGL >= 2.2 && < 2.7, stb-image == 0.2.*, bitmap >= 0.0.2
+    Build-Depends: base == 4.*, OpenGL >= 2.2 && < 2.7, stb-image == 0.2.*, bitmap >= 0.0.2, FreeTypeGL
     hs-Source-Dirs: src
     Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
     Other-Modules: Graphics.DrawingCombinators.Bitmap
     ghc-options : -Wall
     Ghc-Prof-Options:  -prof -auto-all
-    if flag(ftgl)
-        Build-Depends: FTGL
-    else
-        Build-Depends: GLUT
-        CPP-Options: -DLAME_FONTS
 
 Flag examples
   Description: Build example programs

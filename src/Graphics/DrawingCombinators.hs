@@ -1,5 +1,3 @@
-{-# LANGUAGE CPP #-}
-
 --------------------------------------------------------------
 -- |
 -- Module      : Graphics.DrawingCombinators
@@ -78,21 +76,16 @@ module Graphics.DrawingCombinators
     )
 where
 
-import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.Monoid (Monoid(..), Any(..))
-import qualified Graphics.DrawingCombinators.Bitmap as Bitmap
-import qualified Graphics.Rendering.OpenGL.GL as GL
+import Graphics.DrawingCombinators.Affine
+-- for lazily creating a single Shader in IO, while keeping a backwards compatible API
+import System.IO.Unsafe (unsafePerformIO)
 import qualified Codec.Image.STB as Image
-import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
-
-#ifdef LAME_FONTS
-import qualified Graphics.UI.GLUT as GLUT
-import Control.Monad (unless)
-#else
-import qualified Graphics.Rendering.FTGL as FTGL
-import System.Mem.Weak (addFinalizer)
-#endif
+import qualified Graphics.DrawingCombinators.Bitmap as Bitmap
+import qualified Graphics.Rendering.FreeTypeGL as FTGL
+import qualified Graphics.Rendering.OpenGL.GL as GL
 
 type Renderer = Affine -> Color -> IO ()
 type Picker a = R2 -> a
@@ -144,7 +137,6 @@ render d = GL.preservingAttrib [GL.AllServerAttributes] $ do
     GL.lineSmooth GL.$= GL.Enabled
     GL.lineWidth GL.$= 1.5
     GL.hint GL.LineSmooth GL.$= GL.DontCare
-
     dRender d identity white
 
 -- |Like 'render', but clears the screen first. This is so
@@ -171,6 +163,17 @@ toVertex tr p = let (x,y) = tr `apply` p in GL.Vertex2 x y
 toVertex3 :: R -> Affine -> R2 -> GL.Vertex3 GL.GLdouble
 toVertex3 z tr p = let (x,y) = tr `apply` p in GL.Vertex3 x y z
 
+withColor :: IO a -> Color -> IO a
+withColor act (Color r g b a) =
+    GL.color (GL.Color4 r g b a) *> act
+
+withTextures :: GL.Capability -> IO a -> IO a
+withTextures x action =
+    (GL.texture GL.Texture2D GL.$= x) *> action
+
+glEnv :: GL.Capability -> IO a -> Color -> IO a
+glEnv textureEnabled = withColor . withTextures textureEnabled
+
 -- | A single \"pixel\" at the specified point.
 --
 -- > [[point p]] r | [[r]] == [[p]] = (one, Any True)
@@ -178,19 +181,20 @@ toVertex3 z tr p = let (x,y) = tr `apply` p in GL.Vertex3 x y z
 point :: R2 -> Image Any
 point p = Image render' (const (Any False))
     where
-    render' tr _ = withoutTextures . GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
-
-withoutTextures :: IO a -> IO a
-withoutTextures action =
-    GL.texture GL.Texture2D GL.$= GL.Disabled >> action
+    render' tr =
+        glEnv GL.Disabled .
+        GL.renderPrimitive GL.Points .
+        GL.vertex $ toVertex tr p
 
 -- | A line connecting the two given points.
 line :: R2 -> R2 -> Image Any
 line src dest = Image render' (const (Any False))
     where
-    render' tr _ = withoutTextures . GL.renderPrimitive GL.Lines $ do
-        GL.vertex $ toVertex tr src
-        GL.vertex $ toVertex tr dest
+    render' tr =
+        glEnv GL.Disabled .
+        GL.renderPrimitive GL.Lines $ do
+            GL.vertex $ toVertex tr src
+            GL.vertex $ toVertex tr dest
 
 
 -- | A regular polygon centered at the origin with n sides.
@@ -207,8 +211,10 @@ circle = regularPoly 24
 convexPoly :: [R2] -> Image Any
 convexPoly points@(_:_:_:_) = Image render' pick
     where
-    render' tr _ =
-        withoutTextures . GL.renderPrimitive GL.Polygon $ mapM_ (GL.vertex . toVertex tr) points
+    render' tr =
+        glEnv GL.Disabled .
+        GL.renderPrimitive GL.Polygon $
+        mapM_ (GL.vertex . toVertex tr) points
     pick p = Any $ all (sign . side p) edges
         where
         edges = zipWith (,) points (tail points)
@@ -224,7 +230,7 @@ convexPoly _ = error "convexPoly must be given at least three points"
 bezierCurve :: [R2] -> Image Any
 bezierCurve controlPoints = Image render' (const (Any False))
     where
-    render' tr _ = do
+    render' tr = glEnv GL.Disabled $ do
         let ps = map (toVertex3 0 tr) controlPoints
         m <- GL.newMap1 (0,1) ps :: IO (GL.GLmap1 (GL.Vertex3) R)
         GL.map1 GL.$= Just m
@@ -290,15 +296,7 @@ modulate (Color r g b a) (Color r' g' b' a') = Color (r*r') (g*g') (b*b') (a*a')
 tint :: Color -> Image a -> Image a
 tint c d = Image render' (dPick d)
     where
-    render' tr col = do
-        let oldColor = col
-            newColor = modulate c col
-        setColor newColor
-        result <- dRender d tr newColor
-        setColor oldColor
-        return result
-    setColor (Color r g b a) = GL.color $ GL.Color4 r g b a
-
+    render' tr col = dRender d tr $ modulate c col
 
 {-------------------------
   Sprites (bitmap images)
@@ -324,7 +322,7 @@ openSprite path = do
 sprite :: Sprite -> Image Any
 sprite spr = Image render' pick
     where
-    render' tr _ = do
+    render' tr = glEnv GL.Enabled $ do
         GL.texture GL.Texture2D GL.$= GL.Enabled
         oldtex <- GL.get (GL.textureBinding GL.Texture2D)
         GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
@@ -346,59 +344,62 @@ sprite spr = Image render' pick
  Text
 ---------}
 
+newtype Font = Font { getFont :: FTGL.Font }
+
 -- | The image representing some text rendered with a font.  The baseline
 -- is at y=0, the text starts at x=0, and the height of a lowercase x is
 -- 1 unit.
 text :: Font -> String -> Image Any
 text font str = Image render' pick
-    where
-    render' tr _ = withMultGLmatrix tr $ renderText font str
+  where
+    render' tr (Color r g b a) =
+      withMultGLmatrix tr $
+      GL.translate (GL.Vector3 (0 :: R) 2 0) *>
+      GL.scale (1/36 :: R) (1/36) 1 *>
+      renderText textRenderer
+      where
+        textRenderer =
+          FTGL.textRenderer (GL.Vector2 0 0)
+          FTGL.noMarkup { FTGL.foreground_color = realToFrac <$> GL.Color4 r g b a }
+          (getFont font) str
     pick (x,y)
       | 0 <= x && x <= textWidth font str && 0 <= y && y <= 1 = Any True
       | otherwise                                             = Any False
 
-#ifdef LAME_FONTS
+renderText :: FTGL.TextRenderer -> IO ()
+renderText textRenderer = do
+  FTGL.renderText textRenderer
+  -- Must restore this after text so that other primitives don't have to restore it
+  GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
 
-data Font = Font
+{-# NOINLINE ftglLazyGetShaderVar #-}
+ftglLazyGetShaderVar :: IORef (Maybe FTGL.Shader)
+ftglLazyGetShaderVar = unsafePerformIO $ newIORef Nothing
 
-openFont :: String -> IO Font
-openFont _ = do
-    inited <- GLUT.get GLUT.initState
-    unless inited $ GLUT.initialize "" [] >> return ()
-    return Font
-
-renderText :: Font -> String -> IO ()
-renderText Font str = do
-    GL.scale (1/64 :: GL.GLdouble) (1/64) 1
-    GLUT.renderString GLUT.Roman str
-
-textWidth :: Font -> String -> R
-textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GLUT.Roman str))
-
-#else
-
-data Font = Font { getFont :: FTGL.Font }
-
-renderText :: Font -> String -> IO ()
-renderText font str = do
-    GL.scale (1/36 :: GL.GLdouble) (1/36) 1
-    FTGL.renderFont (getFont font) str FTGL.All
+ftglLazyGetShader :: IO FTGL.Shader
+ftglLazyGetShader = maybe initializeFtgl return =<< readIORef ftglLazyGetShaderVar
+  where
+    initializeFtgl = do
+      shader <- FTGL.newShader
+      writeIORef ftglLazyGetShaderVar $ Just shader
+      return shader
 
 -- | Load a TTF font from a file.
 openFont :: String -> IO Font
 openFont path = do
-    font <- FTGL.createTextureFont path
-    addFinalizer font (FTGL.destroyFont font)
-    _ <- FTGL.setFontFaceSize font 72 72
-    return $ Font font
+    shader <- ftglLazyGetShader
+    Font <$> FTGL.loadFont shader path 72.0
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
-textWidth font str =
-  (/36) . realToFrac . unsafePerformIO $
-  FTGL.getFontAdvance (getFont font) str
+textWidth font = fst . textSize font
 
-#endif
+-- | @textSize font str@ is the size of the text in @text font str@.
+textSize :: Font -> String -> R2
+textSize font str = (r width, r height)
+  where
+    r x = realToFrac x / 36
+    GL.Vector2 width height = FTGL.textSize (getFont font) str
 
 -- | Import an OpenGL action and pure sampler function into an Image.
 -- This ought to be a well-behaved, compositional action (make sure
@@ -409,4 +410,7 @@ textWidth font str =
 unsafeOpenGLImage :: (Color -> IO ()) -> (R2 -> a) -> Image a
 unsafeOpenGLImage draw pick = Image render' pick
     where
-    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] . withMultGLmatrix tr $ draw col
+    render' tr col =
+      GL.preservingAttrib [GL.AllServerAttributes] .
+      (flip (glEnv GL.Disabled) col) .
+      withMultGLmatrix tr $ draw col
