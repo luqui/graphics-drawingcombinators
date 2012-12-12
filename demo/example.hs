@@ -52,16 +52,17 @@ main = do
     doneRef <- newIORef False
     GLFW.setWindowCloseCallback $ do
       writeIORef doneRef True
-      return True
-    waitClose doneRef $ quadrants (circleText font "Hello, World!")
-    GLFW.terminate
-    return ()
-    where
+      return False
 
-    waitClose doneRef image = do
-      isDone <- readIORef doneRef
-      unless isDone $ do
-        Draw.clearRender image
-        GLFW.swapBuffers
-        GLFW.pollEvents
-        waitClose doneRef $ Draw.rotate (-0.01) %% image
+    let
+        checkContinue act = do
+          isDone <- readIORef doneRef
+          unless isDone act
+        waitClose image = checkContinue $ do
+          Draw.clearRender image
+          GLFW.swapBuffers
+          checkContinue $ do
+            GLFW.pollEvents
+            waitClose $ Draw.rotate (-0.01) %% image
+    waitClose $ quadrants (circleText font "Hello, World!")
+    return ()
