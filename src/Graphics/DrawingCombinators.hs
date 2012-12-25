@@ -359,7 +359,7 @@ text font str = Image render' pick
       renderText textRenderer
       where
         textRenderer =
-          FTGL.textRenderer (GL.Vector2 0 0)
+          FTGL.textRenderer
           FTGL.noMarkup { FTGL.foreground_color = realToFrac <$> GL.Color4 r g b a }
           (getFont font) str
     pick (x,y)
