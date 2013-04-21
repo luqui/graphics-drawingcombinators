@@ -69,7 +69,7 @@ module Graphics.DrawingCombinators
     -- * Colors
     , Color(..), modulate, tint
     -- * Sprites (images from files)
-    , Sprite, openSprite, sprite
+    , Sprite, spriteBitmap, openSprite, sprite, spriteResolution
     -- * Text
     , Font, openFont, text, textWidth
     -- * Extensions
@@ -78,21 +78,23 @@ module Graphics.DrawingCombinators
     )
 where
 
-import Graphics.DrawingCombinators.Affine
-import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
+import Control.Applicative (Applicative(..), liftA2, (*>))
+import Control.Monad.Primitive (touch)
+import Data.Bitmap (bitmapSize, PixelComponent)
 import Data.Monoid (Monoid(..), Any(..))
-import qualified Graphics.DrawingCombinators.Bitmap as Bitmap
-import qualified Graphics.Rendering.OpenGL.GL as GL
-import qualified Codec.Image.STB as Image
+import Graphics.DrawingCombinators.Affine
 import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
+import qualified Codec.Image.STB as Image
+import qualified Data.Bitmap.OpenGL as BitmapGL
+import qualified Graphics.Rendering.OpenGL.GL as GL
 
 #ifdef LAME_FONTS
 import qualified Graphics.UI.GLUT as GLUT
 import Control.Monad (unless)
 #else
 import qualified Graphics.Rendering.FTGL as FTGL
-import System.Mem.Weak (addFinalizer)
 #endif
+import System.Mem.Weak (addFinalizer)
 
 type Renderer = Affine -> Color -> IO ()
 type Picker a = R2 -> a
@@ -307,7 +309,14 @@ tint c d = Image render' (dPick d)
 -- | A Sprite represents a finite bitmap image.
 --
 -- > [[Sprite]] = [-1,1]^2 -> Color
-data Sprite = Sprite { spriteObject :: GL.TextureObject }
+data Sprite = Sprite { spriteResolutionField :: (Int, Int), spriteObject :: GL.TextureObject }
+
+spriteBitmap :: PixelComponent t => Image.Bitmap t -> IO Sprite
+spriteBitmap bmp = do
+  tex <- BitmapGL.makeSimpleBitmapTexture bmp
+  let spr = Sprite (bitmapSize bmp) tex
+  addFinalizer spr $ GL.deleteObjectNames [tex]
+  return spr
 
 -- | Load an image from a file and create a sprite out of it.
 openSprite :: FilePath -> IO Sprite
@@ -315,7 +324,7 @@ openSprite path = do
     e <- Image.loadImage path
     case e of
         Left err -> fail err
-        Right bmp -> Sprite <$> Bitmap.makeSimpleBitmapTexture bmp
+        Right bmp -> spriteBitmap bmp
 
 -- | The image of a sprite at the origin.
 --
@@ -338,9 +347,15 @@ sprite spr = Image render' pick
             texcoord 0 1
             GL.vertex   $ toVertex tr (-1,-1)
         GL.textureBinding GL.Texture2D GL.$= oldtex
+        touch spr
     pick (x,y) | -1 <= x && x <= 1 && -1 <= y && y <= 1 = Any True
                | otherwise                              = Any False
     texcoord x y = GL.texCoord $ GL.TexCoord2 (x :: GL.GLdouble) (y :: GL.GLdouble)
+
+-- Wrap the record field so it is not exported with record update
+-- capabilities:
+spriteResolution :: Sprite -> (Int, Int)
+spriteResolution = spriteResolutionField
 
 {---------
  Text
