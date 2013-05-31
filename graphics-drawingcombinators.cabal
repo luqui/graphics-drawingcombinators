@@ -13,7 +13,7 @@ Author: Luke Palmer
 Homepage: http://github.com/luqui/graphics-drawingcombinators
 Maintainer: lrpalmer@gmail.com
 Build-Type: Simple
-Extra-Source-Files: example.hs
+Extra-Source-Files: demo/example.hs
 cabal-Version: >= 1.8
 
 source-repository head
