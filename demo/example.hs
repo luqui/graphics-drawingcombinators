@@ -53,15 +53,15 @@ main = do
     GLFW.setWindowCloseCallback $ do
       writeIORef doneRef True
       return True
-    waitClose doneRef $ quadrants (circleText font "Hello, World!")
+    waitClose font doneRef 0
     GLFW.terminate
     return ()
     where
 
-    waitClose doneRef image = do
+    waitClose font doneRef rotation = do
       isDone <- readIORef doneRef
       unless isDone $ do
-        Draw.clearRender image
+        Draw.clearRender $ Draw.rotate rotation %% quadrants (circleText font "Hello, World!")
         GLFW.swapBuffers
         GLFW.pollEvents
-        waitClose doneRef $ Draw.rotate (-0.01) %% image
+        waitClose font doneRef $ rotation - 0.01
