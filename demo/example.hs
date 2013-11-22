@@ -2,8 +2,10 @@ import Control.Monad
 import Data.IORef
 import Data.Monoid
 import Graphics.DrawingCombinators ((%%))
-import qualified Graphics.DrawingCombinators as Draw
-import qualified Graphics.UI.GLFW as GLFW
+import qualified Graphics.DrawingCombinators             as Draw
+import qualified Graphics.UI.GLFW                        as GLFW
+import           Graphics.Rendering.OpenGL.GL.StateVar
+import qualified Graphics.Rendering.OpenGL.GL.CoordTrans as GL(Size(..))
 
 import System.Environment(getArgs)
 
@@ -14,10 +16,10 @@ resY = 480
 initScreen :: IO ()
 initScreen = do
   True <- GLFW.initialize
-  True <- GLFW.openWindow GLFW.defaultDisplayOptions {
-    GLFW.displayOptions_width = resX,
-    GLFW.displayOptions_height = resY
-    }
+  True <- GLFW.openWindow (GL.Size (fromIntegral resX) (fromIntegral resY))
+                          [GLFW.DisplayRGBBits 8 8 8,
+                           GLFW.DisplayDepthBits 8]
+                          GLFW.Window
 
   return ()
 
@@ -50,7 +52,7 @@ main = do
 
 
     doneRef <- newIORef False
-    GLFW.setWindowCloseCallback $ do
+    GLFW.windowCloseCallback $= do
       writeIORef doneRef True
       return True
     waitClose font doneRef 0
