@@ -13,7 +13,7 @@ Author: Luke Palmer
 Homepage: http://github.com/luqui/graphics-drawingcombinators
 Maintainer: lrpalmer@gmail.com
 Build-Type: Simple
-Extra-Source-Files: demo/example.hs
+Extra-Source-Files: demo/example.hs, demo/example-b.hs
 cabal-Version: >= 1.8
 
 source-repository head
@@ -48,4 +48,14 @@ Executable example
     Buildable:     True
     Build-depends: base >= 3 && < 5,
                    GLFW, OpenGL >= 2.2 && < 2.9, graphics-drawingcombinators
+    ghc-options:   -Wall
+
+Executable example_b
+  Main-is:       demo/example_b.hs
+  if !flag(examples)
+    Buildable:     False
+  else
+    Buildable:     True
+    Build-depends: base >= 3 && < 5,
+                   GLFW-b >= 1.4, OpenGL >= 2.2 && < 2.9, graphics-drawingcombinators
     ghc-options:   -Wall
