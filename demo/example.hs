@@ -47,23 +47,27 @@ main :: IO ()
 main = do
     win <- initScreen
     args <- getArgs
-    font <- case args of
-        [fontName] -> do
+    (font, pic) <- case args of
+        [fontName, picName] -> do
             font <- Draw.openFont fontName
-            return font
-        _ -> error "Usage: drawingcombinators-example some_font.ttf"
+            pic <- Draw.openSprite picName
+            return (font, pic)
+        _ -> error "Usage: drawingcombinators-example some_font.ttf some_img.png"
 
 
     doneRef <- newIORef False
     GLFW.setWindowCloseCallback win $ Just $ const $ writeIORef doneRef True
-    waitClose win font doneRef 0
+    let waitClose rotation = do
+          isDone <- readIORef doneRef
+          unless isDone $ do
+            Draw.clearRender $
+              Draw.rotate rotation %%
+              quadrants
+              ( (Draw.scale 0.2 0.2 %% Draw.sprite pic) `mappend`
+                circleText font "Hello, World!" )
+            GLFW.swapBuffers win
+            GLFW.pollEvents
+            waitClose $ rotation - 0.01
+    waitClose 0
     GLFW.terminate
     return ()
-    where
-      waitClose win font doneRef rotation = do
-        isDone <- readIORef doneRef
-        unless isDone $ do
-          Draw.clearRender $ Draw.rotate rotation %% quadrants (circleText font "Hello, World!")
-          GLFW.swapBuffers win
-          GLFW.pollEvents
-          waitClose win font doneRef $ rotation - 0.01
