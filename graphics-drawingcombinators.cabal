@@ -46,5 +46,5 @@ Executable example
     Buildable:     False
   else
     Buildable:     True
-    Build-depends: base, GLFW-b, OpenGL, graphics-drawingcombinators
+    Build-depends: base, GLFW-b >=1.4.6 && <1.5, OpenGL, graphics-drawingcombinators
     ghc-options:   -Wall
