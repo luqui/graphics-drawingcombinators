@@ -99,7 +99,7 @@ main = do
                 Draw.clearRender image
                 GLFW.swapBuffers win
                 GLFW.pollEvents
-                waitClose $ rotation -- - 0.01
+                waitClose $ rotation - 0.01
     waitClose 0
     GLFW.terminate
     return ()
