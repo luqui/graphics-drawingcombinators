@@ -1,3 +1,4 @@
+import Control.Applicative
 import Control.Monad
 import Data.IORef
 import Data.Monoid
@@ -40,8 +41,24 @@ quadrants img = mconcat [
     (Draw.translate (0.5,-0.5)  `Draw.compose` Draw.rotate pi %%),
     (Draw.translate (-0.5,-0.5) `Draw.compose` Draw.rotate (pi/2) %%)] (Draw.scale 0.5 0.5 %% img)
 
-circleText :: Draw.Font -> String -> Draw.Image Any
-circleText font str = unitText font str `mappend` Draw.tint (Draw.Color 0 0 1 0.5) Draw.circle
+
+fromAny :: Alternative f => a -> Any -> f a
+fromAny _ (Any False) = empty
+fromAny msg (Any True) = pure msg
+
+circleText :: Draw.Font -> String -> Draw.Image [String]
+circleText font str =
+  mconcat
+  [ fromAny str <$> unitText font str
+  , fromAny "circle" <$> Draw.tint (Draw.Color 0 0 1 0.5) Draw.circle
+  ]
+
+toGLCoors :: GLFW.Window -> (Double, Double) -> IO Draw.R2
+toGLCoors win (x, y) = do
+    (w, h) <- GLFW.getFramebufferSize win
+    return (coor x w, - coor y h)
+    where
+        coor a b = realToFrac (2 * a / fromIntegral b - 1)
 
 main :: IO ()
 main = do
@@ -57,17 +74,32 @@ main = do
 
     doneRef <- newIORef False
     GLFW.setWindowCloseCallback win $ Just $ const $ writeIORef doneRef True
+
+    let mkImage rotation =
+            Draw.rotate rotation %%
+            quadrants
+            ( mconcat
+              [ Draw.scale 0.2 0.2 %%
+                fromAny "sprite" <$> Draw.sprite pic
+              , circleText font "Hej, World!"
+              ] )
+    imageRef <- newIORef $ mkImage 0
+    GLFW.setMouseButtonCallback win $ Just $ const $ \_button press _mods ->
+        when (press == GLFW.MouseButtonState'Pressed) $ do
+            image <- readIORef imageRef
+            pos <- GLFW.getCursorPos win
+            glPos <- toGLCoors win pos
+            let strs = Draw.sample image glPos
+            print strs
     let waitClose rotation = do
-          isDone <- readIORef doneRef
-          unless isDone $ do
-            Draw.clearRender $
-              Draw.rotate rotation %%
-              quadrants
-              ( (Draw.scale 0.2 0.2 %% Draw.sprite pic) `mappend`
-                circleText font "Hello, World!" )
-            GLFW.swapBuffers win
-            GLFW.pollEvents
-            waitClose $ rotation - 0.01
+            isDone <- readIORef doneRef
+            unless isDone $ do
+                let image = mkImage rotation
+                writeIORef imageRef image
+                Draw.clearRender image
+                GLFW.swapBuffers win
+                GLFW.pollEvents
+                waitClose $ rotation -- - 0.01
     waitClose 0
     GLFW.terminate
     return ()
