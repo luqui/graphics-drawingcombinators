@@ -61,7 +61,9 @@ module Graphics.DrawingCombinators
     (
       module Graphics.DrawingCombinators.Affine
     -- * Basic types
-    , Image, render, clearRender
+    , Image
+    , render, clearRender
+    , renderSized, clearRenderSized
     -- * Selection
     , sample
     -- * Geometry
@@ -86,6 +88,11 @@ import qualified Data.Bitmap.OpenGL as Bitmap
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Codec.Image.STB as Image
 import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Maybe (catMaybes)
+import Data.List (minimumBy)
+import Data.Ord (comparing)
 
 #ifdef LAME_FONTS
 import qualified Graphics.UI.GLUT as GLUT
@@ -95,7 +102,9 @@ import qualified Graphics.Rendering.FTGL as FTGL
 import System.Mem.Weak (addFinalizer)
 #endif
 
-type Renderer = Affine -> Color -> IO ()
+type GLPixelRatio = R2
+
+type Renderer = GLPixelRatio -> Affine -> Color -> IO ()
 type Picker a = R2 -> a
 
 -- | The type of images.
@@ -117,13 +126,13 @@ instance Functor Image where
 
 instance Applicative Image where
     pure x = Image {
-        dRender = (pure.pure.pure) (),
+        dRender = (pure.pure.pure.pure) (),
         dPick = const x
       }
 
     df <*> dx = Image {
         -- reversed so that things that come first go on top
-        dRender = (liftA2.liftA2.liftA2) mappend (dRender dx) (dRender df),
+        dRender = (liftA2.liftA2.liftA2.liftA2) mappend (dRender dx) (dRender df),
         dPick = dPick df <*> dPick dx
       }
 
@@ -131,22 +140,30 @@ instance (Monoid m) => Monoid (Image m) where
     mempty = pure mempty
     mappend = liftA2 mappend
 
+-- |Like `render', but lets you to specify the size of a single GL unit 
+renderSized :: R2 -> Image a -> IO ()
+renderSized glPixelRatio d =
+    GL.preservingAttrib [GL.AllServerAttributes] $ do
+        GL.blend GL.$= GL.Enabled
+        GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
+        -- For now we assume the user wants antialiasing; the general solution is not clear - maybe let the
+        -- user do the opengl setup stuff himself? otherwise need to wrap all of the possible things GL lets
+        -- you set.
+        GL.polygonSmooth GL.$= GL.Enabled
+        GL.lineSmooth GL.$= GL.Enabled
+        GL.lineWidth GL.$= 1.5
+        GL.hint GL.LineSmooth GL.$= GL.DontCare
+
+        dRender d glPixelRatio identity white
+
 -- |Draw an Image on the screen in the current OpenGL coordinate
 -- system (which, in absense of information, is (-1,-1) in the
 -- lower left and (1,1) in the upper right).
 render :: Image a -> IO ()
-render d = GL.preservingAttrib [GL.AllServerAttributes] $ do
-    GL.blend GL.$= GL.Enabled
-    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
-    -- For now we assume the user wants antialiasing; the general solution is not clear - maybe let the
-    -- user do the opengl setup stuff himself? otherwise need to wrap all of the possible things GL lets
-    -- you set.
-    GL.polygonSmooth GL.$= GL.Enabled
-    GL.lineSmooth GL.$= GL.Enabled
-    GL.lineWidth GL.$= 1.5
-    GL.hint GL.LineSmooth GL.$= GL.DontCare
-
-    dRender d identity white
+render =
+    -- Arbitrary approximation of a GL unit size. Getting this wrong
+    -- means font rendering will be of slightly lesser quality
+    renderSized (500, 500)
 
 -- |Like 'render', but clears the screen first. This is so
 -- you can use this module and pretend that OpenGL doesn't
@@ -155,6 +172,12 @@ clearRender :: Image a -> IO ()
 clearRender d = do
     GL.clear [GL.ColorBuffer]
     render d
+
+-- |Like 'clearRender', but for 'renderSized'.
+clearRenderSized :: R2 -> Image a -> IO ()
+clearRenderSized glPixelRatio d = do
+    GL.clear [GL.ColorBuffer]
+    renderSized glPixelRatio d
 
 -- | Sample the value of the image at a point.
 --
@@ -179,7 +202,8 @@ toVertex3 z tr p = let (x,y) = tr `apply` p in GL.Vertex3 x y z
 point :: R2 -> Image Any
 point p = Image render' (const (Any False))
     where
-    render' tr _ = withoutTextures . GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
+    render' _glPixelRatio tr _ =
+        withoutTextures . GL.renderPrimitive GL.Points . GL.vertex $ toVertex tr p
 
 withoutTextures :: IO a -> IO a
 withoutTextures action =
@@ -189,7 +213,7 @@ withoutTextures action =
 line :: R2 -> R2 -> Image Any
 line src dest = Image render' (const (Any False))
     where
-    render' tr _ = withoutTextures . GL.renderPrimitive GL.Lines $ do
+    render' _ tr _ = withoutTextures . GL.renderPrimitive GL.Lines $ do
         GL.vertex $ toVertex tr src
         GL.vertex $ toVertex tr dest
 
@@ -208,7 +232,7 @@ circle = regularPoly 24
 convexPoly :: [R2] -> Image Any
 convexPoly points@(_:_:_:_) = Image render' pick
     where
-    render' tr _ =
+    render' _ tr _ =
         withoutTextures . GL.renderPrimitive GL.Polygon $ mapM_ (GL.vertex . toVertex tr) points
     pick p = Any $ all (sign . side p) edges
         where
@@ -225,7 +249,7 @@ convexPoly _ = error "convexPoly must be given at least three points"
 bezierCurve :: [R2] -> Image Any
 bezierCurve controlPoints = Image render' (const (Any False))
     where
-    render' tr _ = do
+    render' _ tr _ = do
         let ps = map (toVertex3 0 tr) controlPoints
         m <- GL.newMap1 (0,1) ps :: IO (GL.GLmap1 (GL.Vertex3) R)
         GL.map1 GL.$= Just m
@@ -244,7 +268,7 @@ infixr 1 %%
 (%%) :: Affine -> Image a -> Image a
 tr' %% d = tr' `seq` Image render' pick
     where
-    render' tr col = dRender d (tr `compose` tr') col
+    render' glPixelRatio tr col = dRender d glPixelRatio (tr `compose` tr') col
     pick = dPick d . apply (inverse tr')
 
 
@@ -291,11 +315,11 @@ modulate (Color r g b a) (Color r' g' b' a') = Color (r*r') (g*g') (b*b') (a*a')
 tint :: Color -> Image a -> Image a
 tint c d = Image render' (dPick d)
     where
-    render' tr col = do
+    render' glPixelRatio tr col = do
         let oldColor = col
             newColor = modulate c col
         setColor newColor
-        result <- dRender d tr newColor
+        result <- dRender d glPixelRatio tr newColor
         setColor oldColor
         return result
     setColor (Color r g b a) = GL.color $ GL.Color4 r g b a
@@ -325,7 +349,7 @@ openSprite path = do
 sprite :: Sprite -> Image Any
 sprite spr = Image render' pick
     where
-    render' tr _ = do
+    render' _ tr _ = do
         GL.texture GL.Texture2D GL.$= GL.Enabled
         oldtex <- GL.get (GL.textureBinding GL.Texture2D)
         GL.textureBinding GL.Texture2D GL.$= (Just $ spriteObject spr)
@@ -353,7 +377,7 @@ sprite spr = Image render' pick
 text :: Font -> String -> Image Any
 text font str = Image render' pick
     where
-    render' tr _ = withMultGLmatrix tr $ renderText font str
+    render' glPixelRatio tr _ = renderText glPixelRatio font str tr
     pick (x,y)
       | 0 <= x && x <= textWidth font str && -0.5 <= y && y <= 1.5 = Any True
       | otherwise                                             = Any False
@@ -368,8 +392,8 @@ openFont _ = do
     unless inited $ GLUT.initialize "" [] >> return ()
     return Font
 
-renderText :: Font -> String -> IO ()
-renderText Font str = do
+renderText :: GLPixelRatio -> Font -> String -> Affine -> IO ()
+renderText _ Font str tr = withMultGLmatrix tr $ do
     GL.scale (1/64 :: GL.GLdouble) (1/64) 1
     GLUT.renderString GLUT.Roman str
 
@@ -378,12 +402,48 @@ textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GL
 
 #else
 
-data Font = Font { getFont :: FTGL.Font }
+data Font =
+  Font
+  { _getFontBySize :: Map Int FTGL.Font
+  , getFont72 :: FTGL.Font -- default if more precise size not found
+  }
 
-renderText :: Font -> String -> IO ()
-renderText font str = do
-    GL.scale (1/36 :: GL.GLdouble) (1/36) 1
-    FTGL.renderFont (getFont font) str FTGL.All
+fontSizes :: [Int]
+fontSizes = [9,12,15,18,24,36,44]
+defaultFontSize :: Int
+defaultFontSize = 72
+
+setFontFaceSize :: FTGL.Font -> Int -> IO ()
+setFontFaceSize font size =
+    do
+        1 <- FTGL.setFontFaceSize font size resolution
+        return ()
+    where
+        -- DPI of device. It doesn't seem to affect anything much
+        -- (1..72 seem to behave the same). Possibly this is more
+        -- useful in non-texture/buffer-fonts:
+        resolution :: Int
+        resolution = 72
+
+fontForSize :: Int -> Font -> (Int, FTGL.Font)
+fontForSize k (Font m def) =
+    minimumBy (comparing fst) $
+    (72, def) : catMaybes [Map.lookupLE k m, Map.lookupGE k m]
+
+fontHeight :: R
+fontHeight = 2
+
+renderText :: GLPixelRatio -> Font -> String -> Affine -> IO ()
+renderText (_glXPixels, glYPixels) font str tr =
+    withMultGLmatrix tr' $
+    FTGL.renderFont sizedFont str FTGL.All
+    where
+        yScale = scaleYFactor tr
+        heightGl = fontHeight
+        tr' = tr `compose` scale heightRatio heightRatio
+        desiredHeightPixels = heightGl * yScale * glYPixels
+        (heightPixels, sizedFont) = fontForSize (round desiredHeightPixels) font
+        heightRatio = heightGl / fromIntegral heightPixels
 
 -- | Load a TTF font from a file.
 --
@@ -392,24 +452,39 @@ renderText font str = do
 -- See discussion at:
 -- http://hackage.haskell.org/package/base-4.8.0.0/docs/System-Mem-Weak.html#v:addFinalizer
 openFont :: FilePath -> IO Font
-openFont path = do
-    font <- FTGL.createBufferFont path
-    addFinalizer font (FTGL.destroyFont font)
-    _ <- FTGL.setFontFaceSize font 72 72
-    return $ Font font
+openFont path =
+    Font
+    <$> (Map.fromList <$> mapM createFont fontSizes)
+    <*> (snd <$> createFont defaultFontSize)
+    where
+        createFont size = do
+            font <- FTGL.createBufferFont path
+            addFinalizer font (FTGL.destroyFont font)
+            _ <- setFontFaceSize font size
+            return (size, font)
 
-withFont :: FilePath -> (Font -> IO a) -> IO a
-withFont path act =
+withFTGLFont :: FilePath -> Int -> (FTGL.Font -> IO a) -> IO a
+withFTGLFont path size act =
     Exception.bracket (FTGL.createBufferFont path) FTGL.destroyFont $
     \font -> do
-        _ <- FTGL.setFontFaceSize font 72 72
-        act (Font font)
+        setFontFaceSize font size
+        act font
+
+withFont :: FilePath -> (Font -> IO a) -> IO a
+withFont path action = go Map.empty fontSizes
+    where
+        go fontMap [] =
+            withFTGLFont path defaultFontSize $ \defaultFont ->
+            action (Font fontMap defaultFont)
+        go fontMap (size:sizes) =
+            withFTGLFont path size $ \font ->
+            go (Map.insert size font fontMap) sizes
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
 textWidth font str =
-  (/36) . realToFrac . unsafePerformIO $
-  FTGL.getFontAdvance (getFont font) str
+  (* (fontHeight/72)) . realToFrac . unsafePerformIO $
+  FTGL.getFontAdvance (getFont72 font) str
 
 #endif
 
@@ -422,4 +497,4 @@ textWidth font str =
 unsafeOpenGLImage :: (Color -> IO ()) -> (R2 -> a) -> Image a
 unsafeOpenGLImage draw pick = Image render' pick
     where
-    render' tr col = GL.preservingAttrib [GL.AllServerAttributes] . withMultGLmatrix tr $ draw col
+    render' _ tr col = GL.preservingAttrib [GL.AllServerAttributes] . withMultGLmatrix tr $ draw col
