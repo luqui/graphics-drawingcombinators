@@ -4,7 +4,7 @@ Description:
     have to go into the deep, dark world of imperative stateful
     programming just to draw stuff.  It supports 2D only (for now),
     with support drawing geometry, images, and text.
-Version: 1.5.0.1
+Version: 1.5.0.2
 Stability: experimental
 Synopsis: A functional interface to 2D drawing in OpenGL
 License: BSD3
