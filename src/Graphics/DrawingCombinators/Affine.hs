@@ -12,6 +12,7 @@ module Graphics.DrawingCombinators.Affine
     ( R, R2, Affine
     , compose, apply, identity, translate, rotate, scale, inverse
     , multGLmatrix, withMultGLmatrix
+    , scaleXFactor, scaleYFactor
     )
 where
 
@@ -91,3 +92,9 @@ multGLmatrix (M x11 x12 x13 x21 x22 x23) = do
 
 withMultGLmatrix :: Affine -> IO a -> IO a
 withMultGLmatrix m f = GL.preservingMatrix $ multGLmatrix m >> f
+
+scaleXFactor :: Affine -> R
+scaleXFactor (M x11 _ _ x21 _ _) = sqrt $ x11*x11 + x21*x21
+
+scaleYFactor :: Affine -> R
+scaleYFactor (M _ x12 _ _ x22 _) = sqrt $ x12*x12 + x22*x22
