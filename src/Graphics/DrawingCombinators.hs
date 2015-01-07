@@ -88,11 +88,6 @@ import qualified Data.Bitmap.OpenGL as Bitmap
 import qualified Graphics.Rendering.OpenGL.GL as GL
 import qualified Codec.Image.STB as Image
 import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
-import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Maybe (catMaybes)
-import Data.List (minimumBy)
-import Data.Ord (comparing)
 
 #ifdef LAME_FONTS
 import qualified Graphics.UI.GLUT as GLUT
@@ -100,6 +95,11 @@ import Control.Monad (unless)
 #else
 import qualified Graphics.Rendering.FTGL as FTGL
 import System.Mem.Weak (addFinalizer)
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Maybe (catMaybes)
+import Data.List (minimumBy)
+import Data.Ord (comparing)
 #endif
 
 type GLPixelRatio = R2
