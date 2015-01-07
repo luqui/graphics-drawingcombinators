@@ -27,12 +27,22 @@ initScreen = do
   GLFW.makeContextCurrent $ Just win
   return win
 
+square :: Draw.Image Any
+square = Draw.convexPoly [ (-1, 1), (1, 1), (1, -1), (-1, -1) ]
+
 unitText :: Draw.Font -> String -> Draw.Image Any
-unitText font str = (Draw.translate (-1,0) %% Draw.scale (2/w) (2/w) %% Draw.text font str)
-                        `mappend`
-                    Draw.tint (Draw.Color 1 0 0 1) (Draw.line (-1,0) (1,0))
+unitText font str =
+    mconcat
+    [ Draw.tint (Draw.Color 1 0 0 1) $
+      Draw.line (-1,0) (1,0)
+    , Draw.translate (-1,0) <> Draw.scale (2/w) (2/w) %%
+      Draw.text font str
+    , Draw.tint (Draw.Color 0 0.6 0 1) $
+      Draw.scale 1 (2/w) <> Draw.translate (0, 0.5) %%
+      square
+    ]
     where
-    w = Draw.textWidth font str
+        w = Draw.textWidth font str
 
 quadrants :: (Monoid a) => Draw.Image a -> Draw.Image a
 quadrants img = mconcat [
