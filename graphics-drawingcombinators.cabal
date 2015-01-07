@@ -27,7 +27,7 @@ Library
     Build-Depends: base == 4.*, OpenGL >= 2.9, stb-image == 0.2.*, bitmap >= 0.0.2, bitmap-opengl >= 0.0.1.5
     hs-Source-Dirs: src
     Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
-    ghc-options : -Wall
+    ghc-options: -Wall
     Ghc-Prof-Options:  -prof -auto-all
     if flag(ftgl)
         Build-Depends: FTGL
