@@ -73,7 +73,8 @@ module Graphics.DrawingCombinators
     -- * Sprites (images from files)
     , Sprite, openSprite, sprite
     -- * Text
-    , Font, openFont, text, textWidth, withFont
+    , Font, openFont, withFont, fontDescender, fontAscender
+    , text, textWidth
     -- * Extensions
     , unsafeOpenGLImage
     , Monoid(..), Any(..)
@@ -394,6 +395,12 @@ openFont _ = do
     unless inited $ GLUT.initialize "" [] >> return ()
     return Font
 
+fontDescender :: Font -> R
+fontDescender Font = -0.5
+
+fontAscender :: Font -> R
+fontAscender Font = 1.5
+
 renderText :: GLPixelRatio -> Font -> String -> Affine -> IO ()
 renderText _ Font str tr = withMultGLmatrix tr $ do
     GL.scale (1/64 :: GL.GLdouble) (1/64) 1
@@ -403,6 +410,9 @@ textWidth :: Font -> String -> R
 textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GLUT.Roman str))
 
 #else
+
+pixelsToTextHeight :: Real a => Font -> a -> R
+pixelsToTextHeight font x = realToFrac x * textHeight / getFont72HeightPixels font
 
 data Font =
   Font
@@ -439,6 +449,12 @@ fontForSize k (Font m def defHeight) =
 
 textHeight :: R
 textHeight = 2
+
+fontDescender :: Font -> R
+fontDescender font = pixelsToTextHeight font (FTGL.getFontDescender (getFont72 font))
+
+fontAscender :: Font -> R
+fontAscender font = pixelsToTextHeight font (FTGL.getFontAscender (getFont72 font))
 
 renderText :: GLPixelRatio -> Font -> String -> Affine -> IO ()
 renderText (_glXPixels, glYPixels) font str tr =
@@ -493,9 +509,8 @@ withFont path action = go Map.empty fontSizes
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
 textWidth font str =
-  realToFrac (max w (urx + llx)) * textHeight / heightPixels
+  pixelsToTextHeight font (max w (urx + llx))
   where
-      heightPixels = getFont72HeightPixels font
       [llx,_lly,_llz,urx,_ury,_urz] =
           unsafePerformIO $ FTGL.getFontBBox (getFont72 font) str
       w = unsafePerformIO $ FTGL.getFontAdvance (getFont72 font) str

@@ -35,13 +35,14 @@ unitText font str =
     mconcat
     [ Draw.tint (Draw.Color 1 0 0 1) $
       Draw.line (-1,0) (1,0)
-    , Draw.translate (-1,0) <> Draw.scale (2/w) (2/w) %%
+    , Draw.translate (-1,0) <> Draw.scale s s %%
       Draw.text font str
     , Draw.tint (Draw.Color 0 0.6 0 1) $
-      Draw.scale 1 (2/w) <> Draw.translate (0, 0.5) %%
+      Draw.scale 1 s <> Draw.translate (0, 0.5) %%
       square
     ]
     where
+        s = 2 / w
         w = Draw.textWidth font str
 
 quadrants :: (Monoid a) => Draw.Image a -> Draw.Image a
