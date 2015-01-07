@@ -371,15 +371,17 @@ sprite spr = Image render' pick
  Text
 ---------}
 
--- | The image representing some text rendered with a font.  The baseline
--- is at y=0, the text starts at x=0, and the height of a lowercase x is
--- 1 unit.
+-- | The image representing some text rendered with a font.  The
+-- baseline is at y=0, the text starts at x=0, and the height of a
+-- lowercase x is 1 unit. The rect between [0,0] and [textWidth font
+-- str, 1] is Any True. NOTE: some of the color output exceeds this
+-- rect!
 text :: Font -> String -> Image Any
 text font str = Image render' pick
     where
     render' glPixelRatio tr _ = renderText glPixelRatio font str tr
     pick (x,y)
-      | 0 <= x && x <= textWidth font str && -0.5 <= y && y <= 1.5 = Any True
+      | 0 <= x && x <= textWidth font str && 0 <= y && y <= 1 = Any True
       | otherwise                                             = Any False
 
 #ifdef LAME_FONTS
