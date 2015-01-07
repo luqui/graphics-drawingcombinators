@@ -79,7 +79,7 @@ module Graphics.DrawingCombinators
 where
 
 import Graphics.DrawingCombinators.Affine
-import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
+import Control.Applicative (Applicative(..), liftA2, (<$>))
 import qualified Control.Exception as Exception
 import Data.Monoid (Monoid(..), Any(..))
 import qualified Data.Bitmap.OpenGL as Bitmap
@@ -123,7 +123,7 @@ instance Applicative Image where
 
     df <*> dx = Image {
         -- reversed so that things that come first go on top
-        dRender = (liftA2.liftA2) (*>) (dRender dx) (dRender df),
+        dRender = (liftA2.liftA2.liftA2) mappend (dRender dx) (dRender df),
         dPick = dPick df <*> dPick dx
       }
 
