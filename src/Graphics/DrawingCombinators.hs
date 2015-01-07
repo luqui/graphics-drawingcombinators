@@ -406,8 +406,9 @@ textWidth Font str = (1/64) * fromIntegral (unsafePerformIO (GLUT.stringWidth GL
 
 data Font =
   Font
-  { _getFontBySize :: Map Int FTGL.Font
+  { _getFontBySize :: Map R FTGL.Font
   , getFont72 :: FTGL.Font -- default if more precise size not found
+  , getFont72HeightPixels :: R
   }
 
 fontSizes :: [Int]
@@ -427,13 +428,17 @@ setFontFaceSize font size =
         resolution :: Int
         resolution = 72
 
-fontForSize :: Int -> Font -> (Int, FTGL.Font)
-fontForSize k (Font m def) =
+fontForSize :: R -> Font -> (R, FTGL.Font)
+fontForSize k (Font m def defHeight) =
     minimumBy (comparing fst) $
-    (72, def) : catMaybes [Map.lookupLE k m, Map.lookupGE k m]
+    (defHeight, def) :
+    catMaybes
+    [ Map.lookupLE k m
+    , Map.lookupGE k m
+    ]
 
-fontHeight :: R
-fontHeight = 2
+textHeight :: R
+textHeight = 2
 
 renderText :: GLPixelRatio -> Font -> String -> Affine -> IO ()
 renderText (_glXPixels, glYPixels) font str tr =
@@ -441,11 +446,17 @@ renderText (_glXPixels, glYPixels) font str tr =
     FTGL.renderFont sizedFont str FTGL.All
     where
         yScale = scaleYFactor tr
-        heightGl = fontHeight
         tr' = tr `compose` scale heightRatio heightRatio
-        desiredHeightPixels = heightGl * yScale * glYPixels
-        (heightPixels, sizedFont) = fontForSize (round desiredHeightPixels) font
-        heightRatio = heightGl / fromIntegral heightPixels
+        desiredHeightPixels = textHeight * yScale * glYPixels
+        (heightPixels, sizedFont) = fontForSize desiredHeightPixels font
+        heightRatio = textHeight / heightPixels
+
+prepareFont :: FTGL.Font -> Int -> IO (R, FTGL.Font)
+prepareFont font size = do
+    _ <- setFontFaceSize font size
+    let heightPixels =
+            realToFrac (FTGL.getFontAscender font - FTGL.getFontDescender font)
+    return (heightPixels, font)
 
 -- | Load a TTF font from a file.
 --
@@ -454,39 +465,37 @@ renderText (_glXPixels, glYPixels) font str tr =
 -- See discussion at:
 -- http://hackage.haskell.org/package/base-4.8.0.0/docs/System-Mem-Weak.html#v:addFinalizer
 openFont :: FilePath -> IO Font
-openFont path =
-    Font
-    <$> (Map.fromList <$> mapM createFont fontSizes)
-    <*> (snd <$> createFont defaultFontSize)
+openFont path = do
+    (defaultFontHeight, defaultFont) <- createFont defaultFontSize
+    sizedFonts <- Map.fromList <$> mapM createFont fontSizes
+    return $ Font sizedFonts defaultFont defaultFontHeight
     where
         createFont size = do
             font <- FTGL.createBufferFont path
             addFinalizer font (FTGL.destroyFont font)
-            _ <- setFontFaceSize font size
-            return (size, font)
+            prepareFont font size
 
-withFTGLFont :: FilePath -> Int -> (FTGL.Font -> IO a) -> IO a
+withFTGLFont :: FilePath -> Int -> ((R, FTGL.Font) -> IO a) -> IO a
 withFTGLFont path size act =
     Exception.bracket (FTGL.createBufferFont path) FTGL.destroyFont $
-    \font -> do
-        setFontFaceSize font size
-        act font
+    \font -> act =<< prepareFont font size
 
 withFont :: FilePath -> (Font -> IO a) -> IO a
 withFont path action = go Map.empty fontSizes
     where
         go fontMap [] =
-            withFTGLFont path defaultFontSize $ \defaultFont ->
-            action (Font fontMap defaultFont)
+            withFTGLFont path defaultFontSize $ \(defaultHeight, defaultFont) ->
+            action (Font fontMap defaultFont defaultHeight)
         go fontMap (size:sizes) =
-            withFTGLFont path size $ \font ->
-            go (Map.insert size font fontMap) sizes
+            withFTGLFont path size $ \(height, font) ->
+            go (Map.insert height font fontMap) sizes
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
 textWidth font str =
-  realToFrac (max w (urx + llx)) * fontHeight / 72
+  realToFrac (max w (urx + llx)) * textHeight / heightPixels
   where
+      heightPixels = getFont72HeightPixels font
       [llx,_lly,_llz,urx,_ury,_urz] =
           unsafePerformIO $ FTGL.getFontBBox (getFont72 font) str
       w = unsafePerformIO $ FTGL.getFontAdvance (getFont72 font) str
