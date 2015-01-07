@@ -73,7 +73,7 @@ module Graphics.DrawingCombinators
     -- * Sprites (images from files)
     , Sprite, openSprite, sprite
     -- * Text
-    , Font, openFont, withFont
+    , Font, openFont, withFont, fontDescender, fontAscender
     , text, textWidth, textBoundingWidth, textAdvance
     -- * Extensions
     , unsafeOpenGLImage
@@ -401,6 +401,12 @@ openFont _ = do
     unless inited $ GLUT.initialize "" [] >> return ()
     return Font
 
+fontDescender :: Font -> R
+fontDescender Font = -0.5
+
+fontAscender :: Font -> R
+fontAscender Font = 1.5
+
 renderText :: GLPixelRatio -> Font -> String -> Affine -> IO ()
 renderText _ Font str tr = withMultGLmatrix tr $ do
     GL.scale (1/64 :: GL.GLdouble) (1/64) 1
@@ -416,6 +422,9 @@ textAdvance :: Font -> String -> R
 textAdvance = glutTextWidth
 
 #else
+
+pixelsToTextHeight :: Real a => Font -> a -> R
+pixelsToTextHeight font x = realToFrac x * textHeight / getFont72HeightPixels font
 
 data Font =
   Font
@@ -452,6 +461,12 @@ fontForSize k (Font m def defHeight) =
 
 textHeight :: R
 textHeight = 2
+
+fontDescender :: Font -> R
+fontDescender font = pixelsToTextHeight font (FTGL.getFontDescender (getFont72 font))
+
+fontAscender :: Font -> R
+fontAscender font = pixelsToTextHeight font (FTGL.getFontAscender (getFont72 font))
 
 renderText :: GLPixelRatio -> Font -> String -> Affine -> IO ()
 renderText (_glXPixels, glYPixels) font str tr =
@@ -505,18 +520,16 @@ withFont path action = go Map.empty fontSizes
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textBoundingWidth :: Font -> String -> R
 textBoundingWidth font str =
-    realToFrac (urx + padding) * textHeight / heightPixels
+    pixelsToTextHeight font (urx + padding)
     where
-        heightPixels = getFont72HeightPixels font
         padding = llx
         [llx,_lly,_llz,urx,_ury,_urz] =
             unsafePerformIO $ FTGL.getFontBBox (getFont72 font) str
 
 textAdvance :: Font -> String -> R
 textAdvance font str =
-    realToFrac advance * textHeight / heightPixels
+    pixelsToTextHeight font advance
     where
-        heightPixels = getFont72HeightPixels font
         advance = unsafePerformIO $ FTGL.getFontAdvance (getFont72 font) str
 
 #endif
