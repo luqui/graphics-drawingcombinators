@@ -485,11 +485,11 @@ withFont path action = go Map.empty fontSizes
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
 textWidth font str =
-  realToFrac (urx + padding) * fontHeight / 72
+  realToFrac (max w (urx + llx)) * fontHeight / 72
   where
-      padding = llx
       [llx,_lly,_llz,urx,_ury,_urz] =
           unsafePerformIO $ FTGL.getFontBBox (getFont72 font) str
+      w = unsafePerformIO $ FTGL.getFontAdvance (getFont72 font) str
 
 #endif
 
