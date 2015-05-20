@@ -393,7 +393,7 @@ renderText font str = do
 -- http://hackage.haskell.org/package/base-4.8.0.0/docs/System-Mem-Weak.html#v:addFinalizer
 openFont :: FilePath -> IO Font
 openFont path = do
-    font <- FTGL.createTextureFont path
+    font <- FTGL.createBufferFont path
     addFinalizer font (FTGL.destroyFont font)
     _ <- FTGL.setFontFaceSize font 72 72
     return $ Font font
