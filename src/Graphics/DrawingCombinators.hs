@@ -71,7 +71,7 @@ module Graphics.DrawingCombinators
     -- * Sprites (images from files)
     , Sprite, openSprite, sprite
     -- * Text
-    , Font, openFont, text, textWidth
+    , Font, openFont, text, textWidth, withFont
     -- * Extensions
     , unsafeOpenGLImage
     , Monoid(..), Any(..)
@@ -80,6 +80,7 @@ where
 
 import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (*>), (<$>))
+import qualified Control.Exception as Exception
 import Data.Monoid (Monoid(..), Any(..))
 import qualified Data.Bitmap.OpenGL as Bitmap
 import qualified Graphics.Rendering.OpenGL.GL as GL
@@ -385,12 +386,24 @@ renderText font str = do
     FTGL.renderFont (getFont font) str FTGL.All
 
 -- | Load a TTF font from a file.
+--
+-- WARNING: This is unsafe due to the finalizer possibly running earlier than
+-- expected
+-- See discussion at:
+-- http://hackage.haskell.org/package/base-4.8.0.0/docs/System-Mem-Weak.html#v:addFinalizer
 openFont :: FilePath -> IO Font
 openFont path = do
     font <- FTGL.createTextureFont path
     addFinalizer font (FTGL.destroyFont font)
     _ <- FTGL.setFontFaceSize font 72 72
     return $ Font font
+
+withFont :: FilePath -> (Font -> IO a) -> IO a
+withFont path act =
+    Exception.bracket (FTGL.createBufferFont path) FTGL.destroyFont $
+    \font -> do
+        _ <- FTGL.setFontFaceSize font 72 72
+        act (Font font)
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textWidth :: Font -> String -> R
