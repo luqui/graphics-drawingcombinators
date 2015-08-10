@@ -32,7 +32,7 @@ unitText font str = (Draw.translate (-1,0) %% Draw.scale (2/w) (2/w) %% Draw.tex
                         `mappend`
                     Draw.tint (Draw.Color 1 0 0 1) (Draw.line (-1,0) (1,0))
     where
-    w = Draw.textWidth font str
+    w = Draw.textBoundingWidth font str
 
 quadrants :: (Monoid a) => Draw.Image a -> Draw.Image a
 quadrants img = mconcat [
