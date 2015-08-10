@@ -362,6 +362,8 @@ text font str = Image render' pick
 
 data Font = Font
 
+-- Safe with GLUT only
+{-# DEPRECATED openFont "This is unsafe when ftgl flag is enabled" #-}
 openFont :: String -> IO Font
 openFont _ = do
     inited <- GLUT.get GLUT.initState
@@ -387,10 +389,9 @@ renderText font str = do
 
 -- | Load a TTF font from a file.
 --
--- WARNING: This is unsafe due to the finalizer possibly running earlier than
--- expected
 -- See discussion at:
 -- http://hackage.haskell.org/package/base-4.8.0.0/docs/System-Mem-Weak.html#v:addFinalizer
+{-# DEPRECATED openFont "This is unsafe due to the finalizer possibly running earlier than expected" #-}
 openFont :: FilePath -> IO Font
 openFont path = do
     font <- FTGL.createBufferFont path

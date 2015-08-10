@@ -64,42 +64,41 @@ main :: IO ()
 main = do
     win <- initScreen
     args <- getArgs
-    (font, pic) <- case args of
+    (fontName, pic) <- case args of
         [fontName, picName] -> do
-            font <- Draw.openFont fontName
             pic <- Draw.openSprite picName
-            return (font, pic)
+            return (fontName, pic)
         _ -> error "Usage: drawingcombinators-example some_font.ttf some_img.png"
+    Draw.withFont fontName $ \font -> do
 
+        doneRef <- newIORef False
+        GLFW.setWindowCloseCallback win $ Just $ const $ writeIORef doneRef True
 
-    doneRef <- newIORef False
-    GLFW.setWindowCloseCallback win $ Just $ const $ writeIORef doneRef True
-
-    let mkImage rotation =
-            Draw.rotate rotation %%
-            quadrants
-            ( mconcat
-              [ Draw.scale 0.2 0.2 %%
-                fromAny "sprite" <$> Draw.sprite pic
-              , circleText font "Hej, World!"
-              ] )
-    imageRef <- newIORef $ mkImage 0
-    GLFW.setMouseButtonCallback win $ Just $ const $ \_button press _mods ->
-        when (press == GLFW.MouseButtonState'Pressed) $ do
-            image <- readIORef imageRef
-            pos <- GLFW.getCursorPos win
-            glPos <- toGLCoors win pos
-            let strs = Draw.sample image glPos
-            print strs
-    let waitClose rotation = do
-            isDone <- readIORef doneRef
-            unless isDone $ do
-                let image = mkImage rotation
-                writeIORef imageRef image
-                Draw.clearRender image
-                GLFW.swapBuffers win
-                GLFW.pollEvents
-                waitClose $ rotation - 0.01
-    waitClose 0
-    GLFW.terminate
-    return ()
+        let mkImage rotation =
+                Draw.rotate rotation %%
+                quadrants
+                ( mconcat
+                  [ Draw.scale 0.2 0.2 %%
+                    fromAny "sprite" <$> Draw.sprite pic
+                  , circleText font "Hej, World!"
+                  ] )
+        imageRef <- newIORef $ mkImage 0
+        GLFW.setMouseButtonCallback win $ Just $ const $ \_button press _mods ->
+            when (press == GLFW.MouseButtonState'Pressed) $ do
+                image <- readIORef imageRef
+                pos <- GLFW.getCursorPos win
+                glPos <- toGLCoors win pos
+                let strs = Draw.sample image glPos
+                print strs
+        let waitClose rotation = do
+                isDone <- readIORef doneRef
+                unless isDone $ do
+                    let image = mkImage rotation
+                    writeIORef imageRef image
+                    Draw.clearRender image
+                    GLFW.swapBuffers win
+                    GLFW.pollEvents
+                    waitClose $ rotation - 0.01
+        waitClose 0
+        GLFW.terminate
+        return ()
