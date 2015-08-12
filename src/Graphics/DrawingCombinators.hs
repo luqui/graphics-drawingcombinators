@@ -434,7 +434,7 @@ data Font =
   }
 
 fontSizes :: [Int]
-fontSizes = [9,12,15,18,24,36,44]
+fontSizes = [6,9,12,15,17,19,22,25,28,32,36,44]
 defaultFontSize :: Int
 defaultFontSize = 72
 
