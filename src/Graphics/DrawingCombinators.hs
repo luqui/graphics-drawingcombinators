@@ -452,7 +452,7 @@ setFontFaceSize font size =
 
 fontForSize :: R -> Font -> (R, FTGL.Font)
 fontForSize k (Font m def defHeight) =
-    minimumBy (comparing fst) $
+    minimumBy (comparing (abs . (1-) . (/k) . fst)) $
     (defHeight, def) :
     catMaybes
     [ Map.lookupLE k m
