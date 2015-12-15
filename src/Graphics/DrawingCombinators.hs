@@ -73,7 +73,7 @@ module Graphics.DrawingCombinators
     -- * Sprites (images from files)
     , Sprite, openSprite, sprite
     -- * Text
-    , Font, openFont, withFont, fontDescender, fontAscender
+    , Font, openFont, withFont, withFontCatch, fontDescender, fontAscender
     , text, textWidth, textBoundingWidth, textAdvance
     -- * Extensions
     , unsafeOpenGLImage
@@ -84,6 +84,7 @@ where
 import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (<$>))
 import qualified Control.Exception as Exception
+import Control.Exception (Exception)
 import Data.Monoid (Monoid(..), Any(..))
 import qualified Data.Bitmap.OpenGL as Bitmap
 import qualified Graphics.Rendering.OpenGL.GL as GL
@@ -502,20 +503,32 @@ openFont path = do
             addFinalizer font (FTGL.destroyFont font)
             prepareFont font size
 
-withFTGLFont :: FilePath -> Int -> ((R, FTGL.Font) -> IO a) -> IO a
-withFTGLFont path size act =
-    Exception.bracket (FTGL.createBufferFont path) FTGL.destroyFont $
-    \font -> act =<< prepareFont font size
+withFTGLFont :: Exception e => (e -> IO a) -> FilePath -> Int -> ((R, FTGL.Font) -> IO a) -> IO a
+withFTGLFont openFontError path size act =
+    Exception.mask $ \unmask ->
+    do
+        eFont <-
+            (Right <$> FTGL.createBufferFont path)
+            `Exception.catch` (fmap Left . openFontError)
+        case eFont of
+            Left err -> return err
+            Right font ->
+                unmask (act =<< prepareFont font size)
+                `Exception.finally` FTGL.destroyFont font
 
-withFont :: FilePath -> (Font -> IO a) -> IO a
-withFont path action = go Map.empty fontSizes
+withFontCatch :: Exception e => (e -> IO a) -> FilePath -> (Font -> IO a) -> IO a
+withFontCatch openFontError path action = go Map.empty fontSizes
     where
         go fontMap [] =
-            withFTGLFont path defaultFontSize $ \(defaultHeight, defaultFont) ->
+            withFTGLFont openFontError path defaultFontSize $ \(defaultHeight, defaultFont) ->
             action (Font fontMap defaultFont defaultHeight)
         go fontMap (size:sizes) =
-            withFTGLFont path size $ \(height, font) ->
+            withFTGLFont openFontError path size $ \(height, font) ->
             go (Map.insert height font fontMap) sizes
+
+
+withFont :: FilePath -> (Font -> IO a) -> IO a
+withFont = withFontCatch (Exception.throwIO :: Exception.SomeException -> IO a)
 
 -- | @textWidth font str@ is the width of the text in @text font str@.
 textBoundingWidth :: Font -> String -> R
