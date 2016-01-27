@@ -24,7 +24,7 @@ Flag ftgl
     Description: Does the system have FTGL, thus we could use not sucky fonts
 
 Library
-    Build-Depends: base == 4.*, OpenGL >= 2.9 && < 2.14, stb-image == 0.2.*, bitmap >= 0.0.2, bitmap-opengl >= 0.0.1.5, containers >= 0.3 && < 0.6
+    Build-Depends: base == 4.*, OpenGL >= 2.9, stb-image == 0.2.*, bitmap >= 0.0.2, bitmap-opengl >= 0.0.1.5, containers >= 0.3 && < 0.6
     hs-Source-Dirs: src
     Exposed-Modules: Graphics.DrawingCombinators, Graphics.DrawingCombinators.Affine
     ghc-options: -Wall
