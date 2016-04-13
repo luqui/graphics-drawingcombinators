@@ -80,7 +80,6 @@ where
 
 import Graphics.DrawingCombinators.Affine
 import Control.Applicative (Applicative(..), liftA2, (<$>))
-import qualified Control.Exception as Exception
 import Data.Monoid (Monoid(..), Any(..))
 import qualified Data.Bitmap.OpenGL as Bitmap
 import qualified Graphics.Rendering.OpenGL.GL as GL
@@ -91,6 +90,7 @@ import System.IO.Unsafe (unsafePerformIO)  -- for pure textWidth
 import qualified Graphics.UI.GLUT as GLUT
 import Control.Monad (unless)
 #else
+import qualified Control.Exception as Exception
 import qualified Graphics.Rendering.FTGL as FTGL
 import System.Mem.Weak (addFinalizer)
 #endif
@@ -361,6 +361,9 @@ text font str = Image render' pick
 #ifdef LAME_FONTS
 
 data Font = Font
+
+withFont :: FilePath -> (Font -> IO a) -> IO a
+withFont path act = openFont path >>= act
 
 openFont :: String -> IO Font
 openFont _ = do
