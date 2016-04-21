@@ -61,7 +61,7 @@ module Graphics.DrawingCombinators
     (
       module Graphics.DrawingCombinators.Affine
     -- * Basic types
-    , Image, render, clearRender
+    , Image, render, minimalRender, clearRender
     -- * Selection
     , sample
     -- * Geometry
@@ -136,8 +136,6 @@ instance (Monoid m) => Monoid (Image m) where
 -- lower left and (1,1) in the upper right).
 render :: Image a -> IO ()
 render d = GL.preservingAttrib [GL.AllServerAttributes] $ do
-    GL.blend GL.$= GL.Enabled
-    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
     -- For now we assume the user wants antialiasing; the general solution is not clear - maybe let the
     -- user do the opengl setup stuff himself? otherwise need to wrap all of the possible things GL lets
     -- you set.
@@ -145,6 +143,14 @@ render d = GL.preservingAttrib [GL.AllServerAttributes] $ do
     GL.lineSmooth GL.$= GL.Enabled
     GL.lineWidth GL.$= 1.5
     GL.hint GL.LineSmooth GL.$= GL.DontCare
+
+    minimalRender d
+    
+-- |Like 'render', but does not do any setup for antialiasing.
+minimalRender :: Image a -> IO ()
+minimalRender d = GL.preservingAttrib [GL.AllServerAttributes] $ do
+    GL.blend GL.$= GL.Enabled
+    GL.blendFunc GL.$= (GL.SrcAlpha, GL.OneMinusSrcAlpha)
 
     dRender d identity white
 
